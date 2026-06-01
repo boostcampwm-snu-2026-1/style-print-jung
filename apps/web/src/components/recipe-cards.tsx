@@ -142,19 +142,20 @@ function FacetSource({
 }) {
   const ref = refId ? references.find((r) => r.id === refId) : null
   const referenceImageSrc = getReferenceImageSrc(ref)
+  const referenceIndex = ref ? references.findIndex((reference) => reference.id === ref.id) + 1 : null
 
   return (
     <div className="flex items-center justify-between">
       <span className="text-muted-foreground">{label}</span>
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 text-foreground">
         {referenceImageSrc && (
           <img
             src={referenceImageSrc}
-            alt=""
-            className="w-4 h-4 rounded object-cover"
+            alt={ref?.filename || 'Reference thumbnail'}
+            className="h-6 w-8 rounded border object-cover"
           />
         )}
-        <span>#{refId?.slice(0, 6) || 'N/A'}</span>
+        <span>{referenceIndex ? `Ref ${referenceIndex}` : 'N/A'}</span>
       </div>
     </div>
   )
