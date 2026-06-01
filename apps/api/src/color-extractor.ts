@@ -1,54 +1,36 @@
 import chroma from 'chroma-js'
+import sharp from 'sharp'
 import type { ColorFacetToken, ColorRole, Evidence } from '@style-print-jung/shared'
 import { nanoid } from 'nanoid'
 
 /**
  * Extract dominant colors from an image using k-means clustering
- * For server-side, we use a simplified approach since Canvas is not available
  */
-
-// Simple color extraction from base64 image data
-// In production, use sharp or jimp for proper image processing
 export async function extractColorsFromBase64(
   base64Data: string,
   numColors: number = 6
 ): Promise<{ hex: string; frequency: number }[]> {
-  // For MVP, return mock colors based on a simple hash of the image data
-  // In production, implement proper k-means with sharp/jimp
+  const buffer = dataUrlToBuffer(base64Data)
+  const { data, info } = await sharp(buffer)
+    .resize({ width: 160, height: 160, fit: 'inside', withoutEnlargement: true })
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true })
 
-  // Generate a simple hash from the base64 data to get consistent colors per image
-  const hash = simpleHash(base64Data.slice(0, 1000))
-
-  // Generate colors based on hash
-  const colors: { hex: string; frequency: number }[] = []
-
-  for (let i = 0; i < numColors; i++) {
-    const hue = ((hash * (i + 1)) % 360)
-    const sat = 30 + ((hash * (i + 2)) % 50) // 30-80%
-    const light = 20 + ((hash * (i + 3)) % 60) // 20-80%
-
-    const color = chroma.hsl(hue, sat / 100, light / 100)
-    colors.push({
-      hex: color.hex(),
-      frequency: 1 / numColors - (i * 0.05), // Decreasing frequency
-    })
+  const pixels: [number, number, number][] = []
+  for (let i = 0; i < data.length; i += info.channels) {
+    const alpha = data[i + 3]
+    if (alpha > 128) {
+      pixels.push([data[i], data[i + 1], data[i + 2]])
+    }
   }
 
-  // Sort by frequency
-  colors.sort((a, b) => b.frequency - a.frequency)
-
-  return colors
+  return kMeansClustering(pixels, numColors)
 }
 
-// Simple hash function
-function simpleHash(str: string): number {
-  let hash = 0
-  for (let i = 0; i < str.length; i++) {
-    const char = str.charCodeAt(i)
-    hash = ((hash << 5) - hash) + char
-    hash = hash & hash
-  }
-  return Math.abs(hash)
+function dataUrlToBuffer(dataUrl: string): Buffer {
+  const match = dataUrl.match(/^data:image\/[a-z]+;base64,(.+)$/i)
+  return Buffer.from(match?.[1] ?? dataUrl, 'base64')
 }
 
 /**
@@ -230,10 +212,13 @@ function kMeansClustering(
 ): { hex: string; frequency: number }[] {
   if (pixels.length === 0) return []
 
-  // Initialize centroids randomly
   const centroids: [number, number, number][] = []
-  for (let i = 0; i < k; i++) {
-    const idx = Math.floor(Math.random() * pixels.length)
+  const centroidCount = Math.min(k, pixels.length)
+  for (let i = 0; i < centroidCount; i++) {
+    const idx =
+      centroidCount === 1
+        ? 0
+        : Math.floor((i * (pixels.length - 1)) / (centroidCount - 1))
     centroids.push([...pixels[idx]])
   }
 
@@ -260,7 +245,7 @@ function kMeansClustering(
     assignments = newAssignments
 
     // Update centroids
-    for (let c = 0; c < k; c++) {
+    for (let c = 0; c < centroids.length; c++) {
       const assigned = pixels.filter((_, i) => assignments[i] === c)
       if (assigned.length > 0) {
         centroids[c] = [
@@ -273,7 +258,7 @@ function kMeansClustering(
   }
 
   // Count assignments and return colors
-  const counts = new Array(k).fill(0)
+  const counts = new Array(centroids.length).fill(0)
   assignments.forEach((a) => counts[a]++)
   const total = assignments.length
 

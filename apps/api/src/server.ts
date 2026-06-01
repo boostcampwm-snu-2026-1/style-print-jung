@@ -2,6 +2,7 @@ import Fastify from 'fastify'
 import { nanoid } from 'nanoid'
 import { promises as fs, createReadStream } from 'fs'
 import path from 'path'
+import { config } from './config'
 import {
   getReference,
   getReferences,
@@ -20,12 +21,11 @@ import {
   calculateContrastRatio,
   adjustForContrast,
 } from './color-extractor'
+import { generateUICode } from './v0-client'
 import {
-  extractTypography,
-  extractLayout,
-  extractMood,
-  generateUICode,
-} from './v0-client'
+  analyzeDesignFacets,
+  auditGeneratedCodeWithOpenAI,
+} from './openai-client'
 import type {
   AuditReport,
   AuditResponse,
@@ -50,19 +50,8 @@ import type {
 
 const app = Fastify({ logger: true })
 
-const PORT = Number(process.env.API_PORT || 4000)
-const WEB_ORIGIN = process.env.WEB_ORIGIN || 'http://localhost:5173'
-const MAX_FILE_SIZE = 5 * 1024 * 1024
-const UPLOAD_DIR = path.join(process.cwd(), 'public', 'uploads')
-const ALLOWED_MIMES = ['image/png', 'image/jpeg', 'image/webp']
-const MIME_EXTENSIONS: Record<string, string> = {
-  'image/png': 'png',
-  'image/jpeg': 'jpg',
-  'image/webp': 'webp',
-}
-
 app.addHook('onRequest', async (_request, reply) => {
-  reply.header('Access-Control-Allow-Origin', WEB_ORIGIN)
+  reply.header('Access-Control-Allow-Origin', config.api.webOrigin)
   reply.header('Access-Control-Allow-Methods', 'GET,POST,DELETE,OPTIONS')
   reply.header('Access-Control-Allow-Headers', 'Content-Type,Authorization')
 })
@@ -76,7 +65,7 @@ app.get('/health', async () => ({ ok: true }))
 app.get('/uploads/:filename', async (request, reply) => {
   const { filename } = request.params as { filename: string }
   const safeName = path.basename(filename)
-  const filePath = path.join(UPLOAD_DIR, safeName)
+  const filePath = path.join(config.upload.dir, safeName)
   const ext = path.extname(safeName).toLowerCase()
   const mime =
     ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp' : 'image/jpeg'
@@ -115,12 +104,12 @@ app.post('/api/references/upload', async (request, reply) => {
       }
 
       const id = nanoid()
-      const extension = MIME_EXTENSIONS[validation.mime!]
+      const extension = config.upload.mimeExtensions[validation.mime!]
       const filename = `reference-${Date.now()}-${i}-${id}.${extension}`
       const storagePath = `public/uploads/${filename}`
       const url = `/uploads/${filename}`
 
-      await fs.writeFile(path.join(UPLOAD_DIR, filename), validation.buffer!)
+      await fs.writeFile(path.join(config.upload.dir, filename), validation.buffer!)
 
       const reference: ReferenceAsset = {
         id,
@@ -210,8 +199,13 @@ app.post('/api/facets/extract', async (request, reply) => {
     colorTokens.forEach((token) => {
       token.evidence.refId = refId
     })
+    const colorPalette = Object.fromEntries(
+      colorTokens.map((token) => [token.value.role, token.value.hex])
+    )
 
-    const typographyValue = await extractTypography(imageDataUrl)
+    const designFacets = await analyzeDesignFacets(imageDataUrl, colorPalette)
+
+    const typographyValue = designFacets.typography
     const typographyToken = {
       id: nanoid(),
       facetType: 'typography' as const,
@@ -221,7 +215,7 @@ app.post('/api/facets/extract', async (request, reply) => {
       value: typographyValue,
     }
 
-    const layoutValue = await extractLayout(imageDataUrl)
+    const layoutValue = designFacets.layout
     const layoutToken = {
       id: nanoid(),
       facetType: 'layout' as const,
@@ -237,14 +231,7 @@ app.post('/api/facets/extract', async (request, reply) => {
       role: 'spacing.main',
       confidence: 0.7,
       evidence: { refId },
-      value: {
-        baseUnit: layoutValue.density === 'compact' ? 4 : 8,
-        scale:
-          layoutValue.density === 'compact'
-            ? [4, 8, 12, 16, 24, 32]
-            : [8, 16, 24, 32, 48, 64],
-        density: layoutValue.density === 'unknown' ? 'comfortable' : layoutValue.density,
-      },
+      value: designFacets.spacing,
     }
 
     const componentStyleToken: ComponentStyleFacetToken = {
@@ -253,14 +240,9 @@ app.post('/api/facets/extract', async (request, reply) => {
       role: 'componentStyle.main',
       confidence: 0.7,
       evidence: { refId },
-      value: {
-        radius: 'md',
-        shadow: 'sm',
-        border: 'subtle',
-      },
+      value: designFacets.componentStyle,
     }
 
-    const moodKeywords = await extractMood(imageDataUrl)
     const facetPack: FacetPack = {
       id: nanoid(),
       refId,
@@ -271,7 +253,7 @@ app.post('/api/facets/extract', async (request, reply) => {
         spacingToken,
         componentStyleToken,
       ],
-      summary: { moodKeywords },
+      summary: { moodKeywords: designFacets.moodKeywords },
       createdAt: Date.now(),
     }
 
@@ -557,7 +539,7 @@ app.post('/api/audit/analyze', async (request, reply) => {
         .send({ success: false, error: 'IntentSpec not found' } satisfies AuditResponse)
     }
 
-    const augmented = extractFacetsFromCode(code)
+    const augmented = await auditGeneratedCodeWithOpenAI(code, intentSpec)
     const diffs = calculateDiffs(intentSpec.normalized, augmented)
     const provenanceBadges = await generateProvenanceBadges(intentSpec)
 
@@ -585,7 +567,7 @@ app.post('/api/audit/analyze', async (request, reply) => {
 
 async function start() {
   try {
-    await app.listen({ port: PORT, host: '0.0.0.0' })
+    await app.listen({ port: config.api.port, host: '0.0.0.0' })
   } catch (error) {
     app.log.error(error)
     process.exit(1)
@@ -608,18 +590,18 @@ function validateBase64Image(dataUrl: string): {
   const mime = match[1].toLowerCase()
   const data = match[2]
 
-  if (!ALLOWED_MIMES.includes(mime)) {
+  if (!config.upload.allowedMimes.includes(mime)) {
     return {
       valid: false,
-      error: `Unsupported image type: ${mime}. Allowed: ${ALLOWED_MIMES.join(', ')}`,
+      error: `Unsupported image type: ${mime}. Allowed: ${config.upload.allowedMimes.join(', ')}`,
     }
   }
 
   const sizeBytes = (data.length * 3) / 4
-  if (sizeBytes > MAX_FILE_SIZE) {
+  if (sizeBytes > config.upload.maxFileSize) {
     return {
       valid: false,
-      error: `File too large. Maximum size: ${MAX_FILE_SIZE / 1024 / 1024}MB`,
+      error: `File too large. Maximum size: ${config.upload.maxFileSize / 1024 / 1024}MB`,
     }
   }
 
@@ -631,7 +613,7 @@ function validateBase64Image(dataUrl: string): {
 }
 
 async function ensureUploadDir() {
-  await fs.mkdir(UPLOAD_DIR, { recursive: true })
+  await fs.mkdir(config.upload.dir, { recursive: true })
 }
 
 async function deleteStoredReferenceFile(reference: ReferenceAsset) {
@@ -860,68 +842,6 @@ function buildGenerationPrompt(intentSpec: IntentSpec): string {
   prompt += 'Generate the complete React component code now.'
 
   return prompt
-}
-
-function extractFacetsFromCode(code: string): AuditReport['augmented'] {
-  const augmented: AuditReport['augmented'] = {}
-  const colorPattern = /(#[0-9A-Fa-f]{6}|#[0-9A-Fa-f]{3})/g
-  const colors = code.match(colorPattern) || []
-
-  if (colors.length > 0) {
-    augmented.palette = {}
-    colors.slice(0, 6).forEach((color, i) => {
-      const roles = ['primary', 'secondary', 'accent', 'background', 'text', 'surface']
-      augmented.palette![roles[i] || 'other'] = color
-    })
-  }
-
-  const fontFamilyMatch = code.match(/font-\[([\w\s,'-]+)\]|fontFamily:\s*['"]([^'"]+)['"]/i)
-  const textSizeMatches: string[] = code.match(/text-(xs|sm|base|lg|xl|2xl|3xl|4xl)/g) || []
-
-  if (fontFamilyMatch || textSizeMatches.length > 0) {
-    augmented.typography = {
-      fontCandidates: fontFamilyMatch
-        ? [{ name: fontFamilyMatch[1] || fontFamilyMatch[2] }]
-        : [],
-      scale: {
-        h1: textSizeMatches.includes('text-4xl') ? 48 : 36,
-        h2: textSizeMatches.includes('text-2xl') ? 32 : 24,
-        body: textSizeMatches.includes('text-base') ? 16 : 14,
-        caption: textSizeMatches.includes('text-xs') ? 12 : 10,
-      },
-    }
-  }
-
-  const spacingMatches = code.match(/(p|m|gap)-([\d]+)/g) || []
-  if (spacingMatches.length > 0) {
-    const spacingValues = spacingMatches
-      .map((m) => parseInt(m.match(/\d+/)?.[0] || '0') * 4)
-      .filter((v) => v > 0)
-    const uniqueSpacing = Array.from(new Set(spacingValues)).sort((a, b) => a - b)
-
-    augmented.spacing = {
-      baseUnit: uniqueSpacing[0] <= 4 ? 4 : 8,
-      scale: uniqueSpacing.slice(0, 6),
-    }
-  }
-
-  const hasRounded = /rounded-(sm|md|lg|xl)/.test(code)
-  const hasShadow = /shadow-(sm|md|lg)/.test(code)
-  const hasBorder = /border(-\d+)?/.test(code)
-
-  if (hasRounded || hasShadow || hasBorder) {
-    augmented.componentStyle = {
-      radius: hasRounded
-        ? (code.match(/rounded-(sm|md|lg|xl)/)?.[1] as 'sm' | 'md' | 'lg' | 'xl') || 'md'
-        : 'none',
-      shadow: hasShadow
-        ? (code.match(/shadow-(sm|md|lg)/)?.[1] as 'sm' | 'md' | 'lg') || 'sm'
-        : 'none',
-      border: hasBorder ? 'subtle' : 'none',
-    }
-  }
-
-  return augmented
 }
 
 function calculateDiffs(
