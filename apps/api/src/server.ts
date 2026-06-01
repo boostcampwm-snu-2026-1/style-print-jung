@@ -1,6 +1,6 @@
 import Fastify from 'fastify'
 import { nanoid } from 'nanoid'
-import { promises as fs, createReadStream } from 'fs'
+import { promises as fs } from 'fs'
 import path from 'path'
 import { config } from './config'
 import {
@@ -71,8 +71,8 @@ app.get('/uploads/:filename', async (request, reply) => {
     ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp' : 'image/jpeg'
 
   try {
-    await fs.access(filePath)
-    reply.type(mime).send(createReadStream(filePath))
+    const buffer = await fs.readFile(filePath)
+    reply.type(mime).send(buffer)
   } catch {
     reply.status(404).send({ success: false, error: 'File not found' })
   }
