@@ -1,10 +1,9 @@
-import { useState, useEffect, type ReactNode } from 'react'
+import { useState, useEffect, lazy, Suspense, type ReactNode } from 'react'
 import { ReferenceUploader } from '@/components/reference-uploader'
 import { FacetPackViewer } from '@/components/facet-pack-viewer'
 import { RecipeCards } from '@/components/recipe-cards'
 import { ConflictList } from '@/components/conflict-list'
 import { CodeViewer } from '@/components/code-viewer'
-import { PreviewPane } from '@/components/preview-pane'
 import { AuditDiffTable } from '@/components/audit-diff-table'
 import { ProvenanceBadges } from '@/components/provenance-badges'
 import { Button } from '@/components/ui/button'
@@ -35,6 +34,13 @@ import type {
   AuditReport,
   Recipe,
 } from '@/lib/types'
+
+// Code-split the live preview: the heavy @codesandbox/sandpack-react bundle is
+// only fetched when the preview is actually rendered, keeping the main bundle
+// (and initial memory footprint) small.
+const PreviewPane = lazy(() =>
+  import('@/components/preview-pane').then((m) => ({ default: m.PreviewPane }))
+)
 
 type Step = 'upload' | 'recipe' | 'generate'
 
@@ -621,7 +627,13 @@ export default function App() {
                 <TabsContent value="preview">
                   <Card>
                     <CardContent className="pt-6">
-                      <PreviewPane code={generatedCode.code} />
+                      <Suspense
+                        fallback={
+                          <p className="text-muted-foreground">Loading preview…</p>
+                        }
+                      >
+                        <PreviewPane code={generatedCode.code} />
+                      </Suspense>
                     </CardContent>
                   </Card>
                 </TabsContent>

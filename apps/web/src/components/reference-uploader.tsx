@@ -32,23 +32,15 @@ export function ReferenceUploader({
       setError(null)
 
       try {
-        // Convert files to base64 dataUrls
-        const dataUrls = await Promise.all(
-          acceptedFiles.map((file) => {
-            return new Promise<string>((resolve, reject) => {
-              const reader = new FileReader()
-              reader.onload = () => resolve(reader.result as string)
-              reader.onerror = reject
-              reader.readAsDataURL(file)
-            })
-          })
-        )
+        const formData = new FormData()
+        acceptedFiles.forEach((file) => {
+          formData.append('files', file)
+        })
 
         // Upload to API
         const response = await fetch(apiUrl('/api/references/upload'), {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ files: dataUrls }),
+          body: formData,
         })
 
         const data = await response.json()
@@ -75,7 +67,7 @@ export function ReferenceUploader({
       'image/jpeg': ['.jpg', '.jpeg'],
       'image/webp': ['.webp'],
     },
-    maxSize: 5 * 1024 * 1024, // 5MB
+    maxSize: 100 * 1024 * 1024, // 100MB
     disabled: uploading,
   })
 
@@ -121,7 +113,7 @@ export function ReferenceUploader({
                 : 'Drag & drop UI screenshots'}
           </div>
           <p className="text-sm text-muted-foreground">
-            PNG, JPG, WebP up to 5MB each
+            PNG, JPG, WebP up to 100MB each
           </p>
         </div>
       </div>

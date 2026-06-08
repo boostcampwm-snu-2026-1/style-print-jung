@@ -4,6 +4,14 @@ UI reference screenshot에서 디자인 특징을 추출하고, 여러 reference
 
 현재 구조는 **Vite React frontend + Fastify TypeScript backend**로 분리되어 있습니다.
 
+## 프로젝트 정보
+
+- 서비스 주제: UI reference screenshot의 디자인 facet을 추출하고 조합해 React + Tailwind UI 코드를 생성합니다.
+- 핵심 기능: reference 업로드, facet 추출, recipe 선택, conflict/repair 평가, UI 코드 생성, audit 비교
+- 문서 관리: 기획서, 주차별 산출물, Agent 개발 workflow는 GitHub Wiki에서 관리합니다.
+- Task 관리: 개발 Task는 GitHub Issue로 등록하고 진행 상태를 관리합니다.
+- PR 관리: 기능 단위로 branch를 나누고 `feature/*` branch에서 `dev` branch로 PR을 생성합니다.
+
 ## 구조
 
 ```text
@@ -16,6 +24,27 @@ data/         JSON 기반 로컬 저장소
 public/
   uploads/    업로드 이미지 저장소
 ```
+
+## 개발 Workflow
+
+브랜치는 아래 흐름으로 관리합니다.
+
+```text
+main -> dev -> feature/*
+```
+
+- `main`: 안정화된 결과를 유지하는 branch
+- `dev`: 기능 개발 결과를 통합하는 branch
+- `feature/*`: 개별 기능 또는 issue 작업 branch
+
+진행 방식:
+
+1. GitHub Issue로 개발 Task를 등록합니다.
+2. `dev`에서 `feature/기능명` branch를 생성합니다.
+3. 기능 단위로 구현하고 `npm run typecheck`로 검증합니다.
+4. 필요한 경우 `npm run build`까지 확인합니다.
+5. `feature/*`에서 `dev`로 PR을 생성합니다.
+6. 기획/문서/주차별 산출물은 GitHub Wiki에 정리합니다.
 
 ## 로컬 실행
 

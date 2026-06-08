@@ -20,19 +20,35 @@ async function ensureDataDir() {
   }
 }
 
+// In-memory cache of each file's parsed contents. The API is a single-process
+// server, so once a file is loaded we keep it in memory instead of re-reading
+// and re-parsing it from disk on every request. Writes update the cache and
+// persist to disk; reads are served from the cache after the first load.
+const cache = new Map<string, unknown[]>()
+
 // Generic read/write helpers
 async function readJSON<T>(filename: string): Promise<T[]> {
+  const cached = cache.get(filename)
+  if (cached) {
+    return cached as T[]
+  }
+
   await ensureDataDir()
   const filepath = path.join(DATA_DIR, filename)
   try {
     const data = await fs.readFile(filepath, 'utf-8')
-    return JSON.parse(data)
+    const parsed = JSON.parse(data) as T[]
+    cache.set(filename, parsed)
+    return parsed
   } catch {
-    return []
+    const empty: T[] = []
+    cache.set(filename, empty)
+    return empty
   }
 }
 
 async function writeJSON<T>(filename: string, data: T[]): Promise<void> {
+  cache.set(filename, data)
   await ensureDataDir()
   const filepath = path.join(DATA_DIR, filename)
   await fs.writeFile(filepath, JSON.stringify(data, null, 2))

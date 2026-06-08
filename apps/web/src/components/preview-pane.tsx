@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import { Sandpack } from '@codesandbox/sandpack-react'
 import { cn } from '@/lib/utils'
 
@@ -10,6 +11,34 @@ interface PreviewPaneProps {
 }
 
 export function PreviewPane({ code, cssVariables = '', className }: PreviewPaneProps) {
+  // Sandpack spins up an in-browser bundler (web worker + iframe) on mount,
+  // which is the heaviest CPU/memory consumer in the app. Gate it behind an
+  // explicit user action so it never runs until the preview is actually wanted.
+  const [showPreview, setShowPreview] = useState(false)
+
+  if (!showPreview) {
+    return (
+      <div
+        className={cn(
+          'rounded-lg border flex flex-col items-center justify-center gap-3 py-16 text-center',
+          className
+        )}
+      >
+        <p className="text-sm text-muted-foreground max-w-sm">
+          The live preview runs a bundler inside your browser and can be CPU- and
+          memory-heavy. Load it only when you need it.
+        </p>
+        <button
+          type="button"
+          onClick={() => setShowPreview(true)}
+          className="inline-flex items-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"
+        >
+          Load live preview
+        </button>
+      </div>
+    )
+  }
+
   // Wrap the generated code in an App component
   const appCode = `
 import GeneratedComponent from './GeneratedComponent';

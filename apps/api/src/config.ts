@@ -10,7 +10,7 @@ export const config = {
     webOrigin: process.env.WEB_ORIGIN || 'http://localhost:5173',
   },
   upload: {
-    maxFileSize: 5 * 1024 * 1024,
+    maxFileSize: 100 * 1024 * 1024,
     dir: path.join(process.cwd(), 'public', 'uploads'),
     allowedMimes: ['image/png', 'image/jpeg', 'image/webp'],
     mimeExtensions: {
