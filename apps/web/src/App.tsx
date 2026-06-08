@@ -14,6 +14,7 @@ import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
 import { Separator } from '@/components/ui/separator'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { apiUrl } from '@/lib/api'
 import {
   Upload,
   Palette,
@@ -69,7 +70,7 @@ export default function App() {
 
   const loadReferences = async () => {
     try {
-      const response = await fetch('/api/references/upload')
+      const response = await fetch(apiUrl('/api/references/upload'))
       const data = await response.json()
       if (data.success) {
         setReferences(data.references)
@@ -105,7 +106,7 @@ export default function App() {
       }
 
       try {
-        const response = await fetch('/api/facets/extract', {
+        const response = await fetch(apiUrl('/api/facets/extract'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ refId: ref.id }),
@@ -208,7 +209,7 @@ export default function App() {
     setSelectedRecipe(recipe)
 
     try {
-      const response = await fetch('/api/intents/create', {
+      const response = await fetch(apiUrl('/api/intents/create'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ chosen: recipe.chosen }),
@@ -225,7 +226,7 @@ export default function App() {
 
   const evaluateIntent = async (intentId: string) => {
     try {
-      const response = await fetch('/api/intents/evaluate', {
+      const response = await fetch(apiUrl('/api/intents/evaluate'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ intentSpecId: intentId }),
@@ -245,7 +246,7 @@ export default function App() {
     if (!intentSpec) return
 
     try {
-      const response = await fetch('/api/intents/apply-repair', {
+      const response = await fetch(apiUrl('/api/intents/apply-repair'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -268,7 +269,7 @@ export default function App() {
 
     setGenerating(true)
     try {
-      const response = await fetch('/api/generate/v0', {
+      const response = await fetch(apiUrl('/api/generate/v0'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -294,7 +295,7 @@ export default function App() {
     if (!intentSpec) return
 
     try {
-      const response = await fetch('/api/audit/analyze', {
+      const response = await fetch(apiUrl('/api/audit/analyze'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

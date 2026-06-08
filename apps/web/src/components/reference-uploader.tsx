@@ -6,6 +6,7 @@ import { Upload, X, Image as ImageIcon, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
+import { apiUrl } from '@/lib/api'
 import { getReferenceImageSrc } from '@/lib/references'
 import type { ReferenceAsset } from '@/lib/types'
 
@@ -44,7 +45,7 @@ export function ReferenceUploader({
         )
 
         // Upload to API
-        const response = await fetch('/api/references/upload', {
+        const response = await fetch(apiUrl('/api/references/upload'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ files: dataUrls }),
@@ -80,7 +81,7 @@ export function ReferenceUploader({
 
   const handleDelete = async (id: string) => {
     try {
-      const response = await fetch(`/api/references/upload?id=${id}`, {
+      const response = await fetch(apiUrl(`/api/references/upload?id=${id}`), {
         method: 'DELETE',
       })
       const data = await response.json()
