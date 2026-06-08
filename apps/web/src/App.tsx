@@ -330,7 +330,7 @@ export default function App() {
             <div>
               <h1 className="text-2xl font-bold">UI Facet Mixer</h1>
               <p className="text-sm text-muted-foreground">
-                Extract, mix, and generate UI designs from reference screenshots
+                Extract, mix, and generate UI designs from uploaded design assets
               </p>
             </div>
             <Badge variant="outline">MVP v0.1</Badge>
@@ -383,10 +383,10 @@ export default function App() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Upload className="h-5 w-5" />
-                  Reference Screenshots
+                  Reference Assets
                 </CardTitle>
                 <CardDescription>
-                  Upload UI screenshots to extract design facets
+                  Upload design references to extract reusable intent facets
                 </CardDescription>
               </CardHeader>
               <CardContent>

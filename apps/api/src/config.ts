@@ -12,11 +12,12 @@ export const config = {
   upload: {
     maxFileSize: 100 * 1024 * 1024,
     dir: path.join(process.cwd(), 'public', 'uploads'),
-    allowedMimes: ['image/png', 'image/jpeg', 'image/webp'],
+    allowedMimes: ['image/png', 'image/jpeg', 'image/webp', 'image/svg+xml'],
     mimeExtensions: {
       'image/png': 'png',
       'image/jpeg': 'jpg',
       'image/webp': 'webp',
+      'image/svg+xml': 'svg',
     } as Record<string, string>,
   },
   openai: {

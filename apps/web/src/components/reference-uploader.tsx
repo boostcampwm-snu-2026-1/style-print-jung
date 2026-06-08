@@ -66,6 +66,7 @@ export function ReferenceUploader({
       'image/png': ['.png'],
       'image/jpeg': ['.jpg', '.jpeg'],
       'image/webp': ['.webp'],
+      'image/svg+xml': ['.svg'],
     },
     maxSize: 100 * 1024 * 1024, // 100MB
     disabled: uploading,
@@ -110,10 +111,13 @@ export function ReferenceUploader({
               ? 'Drop images here'
               : uploading
                 ? 'Uploading...'
-                : 'Drag & drop UI screenshots'}
+                : 'Drag & drop design assets'}
           </div>
           <p className="text-sm text-muted-foreground">
-            PNG, JPG, WebP up to 100MB each
+            UI screenshots, web/app captures, logos, color palettes, brand moodboards, and simple SVG/PNG/JPEG/WebP assets
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Up to 100MB each
           </p>
         </div>
       </div>
