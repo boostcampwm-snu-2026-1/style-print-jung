@@ -1,4 +1,5 @@
 import { config, requireConfig } from './config'
+import { INTENT_EXPORT_SYSTEM_PROMPT } from './prompts/intent-export'
 
 interface V0Message {
   role: 'system' | 'user' | 'assistant'
@@ -35,8 +36,7 @@ export async function generateUICode(
   prompt: string,
   _mode: 'single' | 'staged' = 'single'
 ): Promise<string> {
-  const system =
-    'You are an expert UI engineer translating framework-neutral IntentSpecs into clean React + Tailwind exports.'
+  const system = INTENT_EXPORT_SYSTEM_PROMPT
   const messages: V0Message[] = [
     {
       role: 'system',

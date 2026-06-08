@@ -29,6 +29,7 @@ import {
   analyzeDesignFacets,
   auditGeneratedCodeWithOpenAI,
 } from './openai-client'
+import { buildIntentExportPrompt } from './prompts/intent-export'
 import type {
   AuditReport,
   AuditResponse,
@@ -550,7 +551,7 @@ app.post('/api/generate/v0', async (request, reply) => {
     }
 
     const code = await generateUICode(
-      buildGenerationPrompt(intentSpec),
+      buildIntentExportPrompt(intentSpec, MVP_EXPORT_TARGET),
       stepMode || 'single'
     )
 
@@ -801,73 +802,6 @@ function evaluateIntentSpec(intentSpec: IntentSpec): {
     repairs,
     coherenceScore: Math.max(0, Math.min(100, coherenceScore)),
   }
-}
-
-function buildGenerationPrompt(intentSpec: IntentSpec): string {
-  const { normalized } = intentSpec
-  const targetExport = intentSpec.targetExport || MVP_EXPORT_TARGET
-  let prompt = [
-    'Translate the following framework-neutral IntentSpec into a UI code export.',
-    `Current export target: ${targetExport.label} (${targetExport.format}).`,
-    'Treat the IntentSpec as the source of truth. Do not replace it with a generic Tailwind aesthetic.',
-    '',
-  ].join('\n')
-
-  if (normalized.palette) {
-    prompt += '## Color Palette\nUse these exact colors:\n'
-    Object.entries(normalized.palette).forEach(([role, hex]) => {
-      prompt += `- ${role}: ${hex}\n`
-    })
-    prompt += '\n'
-  }
-
-  if (normalized.typography) {
-    const typo = normalized.typography
-    prompt += '## Typography\n'
-    if (typo.fontCandidates?.[0]) {
-      prompt += `- Font Family: ${typo.fontCandidates[0].name}\n`
-    }
-    prompt += `- Heading 1: ${typo.scale.h1}px\n`
-    prompt += `- Heading 2: ${typo.scale.h2}px\n`
-    prompt += `- Body: ${typo.scale.body}px\n`
-    prompt += `- Caption: ${typo.scale.caption}px\n`
-    prompt += `- Line Height (body): ${typo.lineHeight.body}\n\n`
-  }
-
-  if (normalized.layout) {
-    prompt += '## Layout\n'
-    prompt += `- Pattern: ${normalized.layout.pattern}\n`
-    if (normalized.layout.columns) {
-      prompt += `- Columns: ${normalized.layout.columns}\n`
-    }
-    prompt += `- Density: ${normalized.layout.density}\n\n`
-  }
-
-  if (normalized.spacing) {
-    prompt += '## Spacing\n'
-    prompt += `- Base unit: ${normalized.spacing.baseUnit}px\n`
-    prompt += `- Scale: ${normalized.spacing.scale.join(', ')}px\n\n`
-  }
-
-  if (normalized.componentStyle) {
-    prompt += '## Component Style\n'
-    prompt += `- Border Radius: ${normalized.componentStyle.radius}\n`
-    prompt += `- Shadow: ${normalized.componentStyle.shadow}\n`
-    prompt += `- Border: ${normalized.componentStyle.border}\n\n`
-  }
-
-  prompt += '## Requirements\n'
-  prompt += '1. Create a complete, functional React component\n'
-  prompt += '2. Use Tailwind CSS classes as the current export format\n'
-  prompt += '3. Ensure all color combinations meet WCAG AA contrast requirements (4.5:1 minimum)\n'
-  prompt += '4. Make it responsive (mobile-first approach)\n'
-  prompt += '5. Include proper semantic HTML\n'
-  prompt += '6. Export as default function component\n'
-  prompt += '7. Preserve the IntentSpec style decisions instead of falling back to framework defaults\n'
-  prompt += '8. Component should be production-ready\n\n'
-  prompt += 'Generate the complete React component code now.'
-
-  return prompt
 }
 
 function calculateDiffs(
