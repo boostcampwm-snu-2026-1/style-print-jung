@@ -90,6 +90,7 @@ export function buildIntentExportPrompt(
     '6. Make the component responsive with mobile-first structure.',
     '7. Use semantic HTML and accessible labels for interactive elements.',
     '8. Preserve the IntentSpec style decisions instead of falling back to framework defaults.',
+    '9. Do not generate Next.js layout, metadata, routing, config, CSS, or analytics files.',
     '',
     'Generate the complete React component code now.'
   )

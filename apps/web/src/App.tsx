@@ -68,6 +68,7 @@ export default function App() {
   const [generating, setGenerating] = useState(false)
   const [generatedCode, setGeneratedCode] = useState<GeneratedCode | null>(null)
   const [auditReport, setAuditReport] = useState<AuditReport | null>(null)
+  const [generationError, setGenerationError] = useState<string | null>(null)
 
   // Load existing references on mount
   useEffect(() => {
@@ -274,6 +275,9 @@ export default function App() {
     if (!intentSpec) return
 
     setGenerating(true)
+    setGenerationError(null)
+    setGeneratedCode(null)
+    setAuditReport(null)
     try {
       const response = await fetch(apiUrl('/api/generate/v0'), {
         method: 'POST',
@@ -289,9 +293,12 @@ export default function App() {
 
         // Audit the generated code
         await auditCode(data.generatedCode.code)
+      } else {
+        setGenerationError(data.error || 'Generate UI failed')
       }
     } catch (err) {
       console.error('Failed to generate UI:', err)
+      setGenerationError(err instanceof Error ? err.message : 'Generate UI failed')
     } finally {
       setGenerating(false)
     }
@@ -610,9 +617,17 @@ export default function App() {
                     )}
                   </Button>
                   <span className="text-sm text-muted-foreground">
-                    Mode: Single Generation (Full UI at once)
+                    {generating
+                      ? 'Waiting for v0 response...'
+                      : 'Mode: Single Generation (Full UI at once)'}
                   </span>
                 </div>
+                {generationError && (
+                  <div className="mt-4 flex items-start gap-2 rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+                    <span>{generationError}</span>
+                  </div>
+                )}
               </CardContent>
             </Card>
 

@@ -32,6 +32,8 @@ interface V0GeneratedFile {
   lang?: string
 }
 
+const V0_REQUEST_TIMEOUT_MS = 300_000
+
 export async function generateUICode(
   prompt: string,
   _mode: 'single' | 'staged' = 'single'
@@ -73,6 +75,7 @@ async function callV0ModelAPI(messages: V0Message[]): Promise<string> {
       model: config.v0.model,
       messages,
     }),
+    signal: AbortSignal.timeout(V0_REQUEST_TIMEOUT_MS),
   })
 
   if (!response.ok) {
@@ -108,6 +111,7 @@ async function callV0PlatformAPI(system: string, message: string): Promise<strin
         thinking: false,
       },
     }),
+    signal: AbortSignal.timeout(V0_REQUEST_TIMEOUT_MS),
   })
 
   if (!response.ok) {
@@ -117,10 +121,7 @@ async function callV0PlatformAPI(system: string, message: string): Promise<strin
 
   const data: V0ChatResponse = await response.json()
   const generatedFiles = data.latestVersion?.files || []
-  const preferredFile =
-    generatedFiles.find((file) => file.name?.match(/\.(tsx|jsx)$/)) ||
-    generatedFiles.find((file) => file.lang?.match(/tsx|jsx|javascript|typescript/i)) ||
-    generatedFiles.find((file) => file.content)
+  const preferredFile = selectGeneratedUIFile(generatedFiles)
 
   if (preferredFile?.content) {
     return preferredFile.content
@@ -136,6 +137,43 @@ async function callV0PlatformAPI(system: string, message: string): Promise<strin
   }
 
   throw new Error('v0 response did not include generated code content')
+}
+
+function selectGeneratedUIFile(files: V0GeneratedFile[]): V0GeneratedFile | undefined {
+  const candidates = files.filter(
+    (file) => file.content && isCodeFile(file) && !isGeneratedShellFile(file)
+  )
+  return candidates.sort((a, b) => scoreGeneratedFile(b) - scoreGeneratedFile(a))[0]
+}
+
+function isCodeFile(file: V0GeneratedFile): boolean {
+  const name = file.name || ''
+  return /\.(tsx|jsx|ts|js)$/.test(name) || /tsx|jsx|javascript|typescript/i.test(file.lang || '')
+}
+
+function scoreGeneratedFile(file: V0GeneratedFile): number {
+  const name = (file.name || '').toLowerCase()
+  const content = file.content || ''
+  let score = 0
+
+  if (/\/?app\/page\.(tsx|jsx)$/.test(name) || /(^|\/)page\.(tsx|jsx)$/.test(name)) score += 100
+  if (/\/?components?\//.test(name)) score += 60
+  if (/export\s+default\s+function/.test(content)) score += 30
+  if (/className=/.test(content)) score += 20
+  if (/\.(tsx|jsx)$/.test(name)) score += 10
+
+  return score
+}
+
+function isGeneratedShellFile(file: V0GeneratedFile): boolean {
+  const name = (file.name || '').toLowerCase()
+  const content = file.content || ''
+  return (
+    /(^|\/)layout\.(tsx|jsx)$/.test(name) ||
+    /(^|\/)(globals|global)\.css$/.test(name) ||
+    /(^|\/)(next\.config|package|tsconfig)/.test(name) ||
+    /metadata|RootLayout|@vercel\/analytics/.test(content)
+  )
 }
 
 function getPlatformModelId(model: string): string {
