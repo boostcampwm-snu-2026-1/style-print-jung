@@ -32,11 +32,16 @@ import {
   Check,
   ChevronRight,
   Loader2,
+  Plus,
+  Trash2,
 } from 'lucide-react'
 import type {
   ReferenceAsset,
   FacetPack,
   IntentSpec,
+  GenerationBrief,
+  ScreenPlanItem,
+  ScreenPlanType,
   ConflictCard,
   RepairPlan,
   GeneratedCode,
@@ -66,6 +71,33 @@ type ManualFacetType = (typeof manualFacetFields)[number]['facetType']
 type FacetToken = FacetPack['tokens'][number]
 type FacetTokenOf<T extends ManualFacetType> = Extract<FacetToken, { facetType: T }>
 
+const screenPlanOptions: { value: ScreenPlanType; label: string }[] = [
+  { value: 'home', label: 'Home' },
+  { value: 'hamburgerMenu', label: 'Hamburger Menu' },
+  { value: 'dashboard', label: 'Dashboard' },
+  { value: 'list', label: 'List' },
+  { value: 'detail', label: 'Detail' },
+  { value: 'form', label: 'Form' },
+  { value: 'custom', label: 'Custom' },
+]
+
+function createScreenPlanItem(type: ScreenPlanType = 'home'): ScreenPlanItem {
+  const option = screenPlanOptions.find((item) => item.value === type)
+  return {
+    id: `screen-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    type,
+    name: option?.label || 'Custom Screen',
+  }
+}
+
+function createDefaultGenerationBrief(): GenerationBrief {
+  return {
+    prompt: '',
+    screens: [createScreenPlanItem('home')],
+    variantCount: 1,
+  }
+}
+
 export default function App() {
   // Step state
   const [currentStep, setCurrentStep] = useState<Step>('upload')
@@ -88,6 +120,11 @@ export default function App() {
   const [coherenceScore, setCoherenceScore] = useState<number>(0)
 
   // Generation state
+  const [generationChosen, setGenerationChosen] = useState<IntentSpec['chosen']>({})
+  const [generationBrief, setGenerationBrief] = useState<GenerationBrief>(
+    createDefaultGenerationBrief
+  )
+  const [lastGeneratedSignature, setLastGeneratedSignature] = useState<string | null>(null)
   const [generating, setGenerating] = useState(false)
   const [generatedCode, setGeneratedCode] = useState<GeneratedCode | null>(null)
   const [auditReport, setAuditReport] = useState<AuditReport | null>(null)
@@ -113,6 +150,13 @@ export default function App() {
       return next
     })
   }, [facetPacks])
+
+  useEffect(() => {
+    if (intentSpec) {
+      setGenerationChosen(intentSpec.chosen)
+      setGenerationBrief(intentSpec.generationBrief || createDefaultGenerationBrief())
+    }
+  }, [intentSpec?.id])
 
   const loadReferences = async () => {
     try {
@@ -257,6 +301,10 @@ export default function App() {
     setConflicts([])
     setRepairs([])
     setCoherenceScore(recipe.coherenceScore)
+    setGeneratedCode(null)
+    setAuditReport(null)
+    setGenerationError(null)
+    setLastGeneratedSignature(null)
 
     try {
       const response = await fetch(apiUrl('/api/intents/create'), {
@@ -267,6 +315,7 @@ export default function App() {
       const data = await response.json()
       if (data.success && data.intentSpec) {
         setIntentSpec(data.intentSpec)
+        setGenerationChosen(data.intentSpec.chosen)
         evaluateIntentSpec(data.intentSpec.id, recipe.id)
       }
     } catch (err) {
@@ -299,6 +348,58 @@ export default function App() {
     setManualChosen((prev) => ({
       ...prev,
       [key]: refId,
+    }))
+  }
+
+  const updateGenerationFacet = (key: ManualFacetKey, refId: string) => {
+    setGenerationChosen((prev) => ({
+      ...prev,
+      [key]: refId,
+    }))
+  }
+
+  const updateGenerationPrompt = (prompt: string) => {
+    setGenerationBrief((prev) => ({ ...prev, prompt }))
+  }
+
+  const updateVariantCount = (value: string) => {
+    const parsed = Number(value)
+    const variantCount = parsed === 2 || parsed === 3 ? parsed : 1
+    setGenerationBrief((prev) => ({ ...prev, variantCount }))
+  }
+
+  const addScreenPlanItem = () => {
+    setGenerationBrief((prev) => ({
+      ...prev,
+      screens: [...prev.screens, createScreenPlanItem('custom')],
+    }))
+  }
+
+  const updateScreenPlanItem = (
+    id: string,
+    patch: Partial<Omit<ScreenPlanItem, 'id'>>
+  ) => {
+    setGenerationBrief((prev) => ({
+      ...prev,
+      screens: prev.screens.map((screen) => {
+        if (screen.id !== id) return screen
+
+        const next = { ...screen, ...patch }
+        if (patch.type && screen.name === getScreenTypeLabel(screen.type)) {
+          next.name = getScreenTypeLabel(patch.type)
+        }
+        return next
+      }),
+    }))
+  }
+
+  const removeScreenPlanItem = (id: string) => {
+    setGenerationBrief((prev) => ({
+      ...prev,
+      screens:
+        prev.screens.length > 1
+          ? prev.screens.filter((screen) => screen.id !== id)
+          : prev.screens,
     }))
   }
 
@@ -368,6 +469,9 @@ export default function App() {
   const generateUI = async () => {
     if (!intentSpec) return
 
+    const nextChosen = resolveGenerationChosen(generationChosen, intentSpec.chosen)
+    const nextSignature = buildGenerationSignature(nextChosen, generationBrief)
+
     setGenerating(true)
     setGenerationError(null)
     setGeneratedCode(null)
@@ -379,6 +483,8 @@ export default function App() {
         body: JSON.stringify({
           intentSpecId: intentSpec.id,
           stepMode: 'single',
+          chosen: nextChosen,
+          generationBrief,
         }),
       })
       const data = await readApiResponse<GenerateResponse>(
@@ -386,10 +492,16 @@ export default function App() {
         'Generate UI failed'
       )
       if (data.success && data.generatedCode) {
+        if (data.intentSpec) {
+          setIntentSpec(data.intentSpec)
+          setGenerationChosen(data.intentSpec.chosen)
+          setGenerationBrief(data.intentSpec.generationBrief || generationBrief)
+        }
         setGeneratedCode(data.generatedCode)
+        setLastGeneratedSignature(nextSignature)
 
         // Audit the generated code
-        await auditCode(data.generatedCode.code)
+        await auditCode(data.generatedCode.code, data.intentSpec?.id || intentSpec.id)
       } else {
         setGenerationError(
           data.error || `Generate UI failed (${response.status})`
@@ -403,15 +515,15 @@ export default function App() {
     }
   }
 
-  const auditCode = async (code: string) => {
-    if (!intentSpec) return
+  const auditCode = async (code: string, specId = intentSpec?.id) => {
+    if (!specId) return
 
     try {
       const response = await fetch(apiUrl('/api/audit/analyze'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          intentSpecId: intentSpec.id,
+          intentSpecId: specId,
           code,
         }),
       })
@@ -429,6 +541,23 @@ export default function App() {
 
   const canProceedToRecipe = references.length > 0 && facetPacks.length > 0
   const canProceedToGenerate = intentSpec !== null
+  const resolvedGenerationChosen = intentSpec
+    ? resolveGenerationChosen(generationChosen, intentSpec.chosen)
+    : generationChosen
+  const currentGenerationSignature = buildGenerationSignature(
+    resolvedGenerationChosen,
+    generationBrief
+  )
+  const generatedIsOutdated = Boolean(
+    generatedCode &&
+      lastGeneratedSignature &&
+      currentGenerationSignature !== lastGeneratedSignature
+  )
+  const generateButtonLabel = !generatedCode
+    ? 'Generate UI'
+    : generatedIsOutdated
+      ? 'Regenerate with edits'
+      : 'Regenerate UI'
 
   return (
     <div className="min-h-screen bg-background">
@@ -721,16 +850,84 @@ export default function App() {
             {/* Generation Controls */}
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Wand2 className="h-5 w-5" />
-                  Export UI Code
-                </CardTitle>
-                <CardDescription>
-                  Export the selected IntentSpec as React + Tailwind code
-                </CardDescription>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <Wand2 className="h-5 w-5" />
+                      Export UI Code
+                    </CardTitle>
+                    <CardDescription>
+                      Export the selected IntentSpec as React + Tailwind code
+                    </CardDescription>
+                  </div>
+                  {generatedCode && (
+                    <Badge variant={generatedIsOutdated ? 'warning' : 'success'}>
+                      {generatedIsOutdated ? 'Outdated' : 'Current'}
+                    </Badge>
+                  )}
+                </div>
               </CardHeader>
-              <CardContent>
-                <div className="flex items-center gap-4">
+              <CardContent className="space-y-6">
+                <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_180px]">
+                  <div className="space-y-2">
+                    <Label htmlFor="generation-prompt">Prompt</Label>
+                    <textarea
+                      id="generation-prompt"
+                      value={generationBrief.prompt}
+                      onChange={(event) => updateGenerationPrompt(event.target.value)}
+                      placeholder="Describe the product, audience, content, interactions, or constraints you want in the generated UI."
+                      className="min-h-[120px] w-full resize-y rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="variant-count">Variants</Label>
+                    <Select
+                      value={String(generationBrief.variantCount)}
+                      onValueChange={updateVariantCount}
+                    >
+                      <SelectTrigger id="variant-count">
+                        <SelectValue placeholder="Select count" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="1">1 concept</SelectItem>
+                        <SelectItem value="2">2 concepts</SelectItem>
+                        <SelectItem value="3">3 concepts</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <ScreenPlanEditor
+                  screens={generationBrief.screens}
+                  onAdd={addScreenPlanItem}
+                  onChange={updateScreenPlanItem}
+                  onRemove={removeScreenPlanItem}
+                />
+
+                <div className="space-y-3">
+                  <div>
+                    <h3 className="text-sm font-medium">Reference Sources</h3>
+                    <p className="text-sm text-muted-foreground">
+                      Choose which uploaded reference drives each generated facet.
+                    </p>
+                  </div>
+                  <ManualFacetSelector
+                    chosen={resolvedGenerationChosen}
+                    facetPacks={facetPacks}
+                    references={references}
+                    onChange={updateGenerationFacet}
+                  />
+                </div>
+
+                {generatedCode && generatedIsOutdated && (
+                  <div className="rounded-md border border-yellow-200 bg-yellow-50 p-3 text-sm text-yellow-800 dark:border-yellow-900 dark:bg-yellow-950 dark:text-yellow-200">
+                    The current generated result was created from older settings.
+                  </div>
+                )}
+
+                <Separator />
+
+                <div className="flex flex-wrap items-center gap-4">
                   <Button
                     onClick={generateUI}
                     disabled={generating || !intentSpec}
@@ -744,7 +941,7 @@ export default function App() {
                     ) : (
                       <>
                         <Code className="mr-2 h-4 w-4" />
-                        Generate UI
+                        {generateButtonLabel}
                       </>
                     )}
                   </Button>
@@ -773,7 +970,37 @@ export default function App() {
                 </TabsList>
                 <TabsContent value="preview">
                   <Card>
-                    <CardContent className="pt-6">
+                    <CardContent className="space-y-4 pt-6">
+                      <div className="flex flex-wrap items-start gap-4 rounded-md border bg-muted/30 p-3">
+                        {generatedCode.screenshotUrl ? (
+                          <img
+                            src={generatedCode.screenshotUrl}
+                            alt="Generated UI screenshot"
+                            className="h-28 w-44 rounded border bg-white object-cover"
+                          />
+                        ) : (
+                          <div className="flex h-28 w-44 items-center justify-center rounded border bg-background text-xs text-muted-foreground">
+                            No screenshot
+                          </div>
+                        )}
+                        <div className="min-w-0 flex-1 text-sm">
+                          <div className="mb-2 flex flex-wrap items-center gap-2">
+                            <span className="font-medium">Preview Snapshot</span>
+                            <Badge variant={generatedIsOutdated ? 'warning' : 'outline'}>
+                              {generatedIsOutdated ? 'Outdated' : 'From generated code'}
+                            </Badge>
+                          </div>
+                          {generatedCode.screenshotError ? (
+                            <p className="text-muted-foreground">
+                              Screenshot unavailable: {generatedCode.screenshotError}
+                            </p>
+                          ) : (
+                            <p className="text-muted-foreground">
+                              Captured from the generated preview artifact.
+                            </p>
+                          )}
+                        </div>
+                      </div>
                       <Suspense
                         fallback={
                           <p className="text-muted-foreground">Loading preview…</p>
@@ -847,6 +1074,93 @@ export default function App() {
   )
 }
 
+function ScreenPlanEditor({
+  screens,
+  onAdd,
+  onChange,
+  onRemove,
+}: {
+  screens: ScreenPlanItem[]
+  onAdd: () => void
+  onChange: (id: string, patch: Partial<Omit<ScreenPlanItem, 'id'>>) => void
+  onRemove: (id: string) => void
+}) {
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-medium">Screen Plan</h3>
+          <p className="text-sm text-muted-foreground">
+            Define the screens the generated component should include.
+          </p>
+        </div>
+        <Button type="button" variant="outline" size="sm" onClick={onAdd}>
+          <Plus className="mr-2 h-4 w-4" />
+          Add Screen
+        </Button>
+      </div>
+      <div className="space-y-3">
+        {screens.map((screen, index) => (
+          <div key={screen.id} className="grid gap-3 rounded-md border p-3 lg:grid-cols-[180px_1fr_1fr_auto]">
+            <div className="space-y-2">
+              <Label htmlFor={`${screen.id}-type`}>Type</Label>
+              <Select
+                value={screen.type}
+                onValueChange={(type) =>
+                  onChange(screen.id, { type: type as ScreenPlanType })
+                }
+              >
+                <SelectTrigger id={`${screen.id}-type`}>
+                  <SelectValue placeholder="Select type" />
+                </SelectTrigger>
+                <SelectContent>
+                  {screenPlanOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor={`${screen.id}-name`}>Name</Label>
+              <input
+                id={`${screen.id}-name`}
+                value={screen.name}
+                onChange={(event) => onChange(screen.id, { name: event.target.value })}
+                placeholder={`Screen ${index + 1}`}
+                className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor={`${screen.id}-notes`}>Notes</Label>
+              <input
+                id={`${screen.id}-notes`}
+                value={screen.notes || ''}
+                onChange={(event) => onChange(screen.id, { notes: event.target.value })}
+                placeholder="Optional"
+                className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+              />
+            </div>
+            <div className="flex items-end">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() => onRemove(screen.id)}
+                disabled={screens.length === 1}
+                aria-label={`Remove ${screen.name || `screen ${index + 1}`}`}
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function ManualFacetSelector({
   chosen,
   facetPacks,
@@ -858,7 +1172,7 @@ function ManualFacetSelector({
   facetPacks: FacetPack[]
   references: ReferenceAsset[]
   onChange: (key: ManualFacetKey, refId: string) => void
-  onApply: () => void
+  onApply?: () => void
 }) {
   if (facetPacks.length === 0) {
     return (
@@ -906,9 +1220,11 @@ function ManualFacetSelector({
           )
         })}
       </div>
-      <Button className="w-full md:w-auto" onClick={onApply}>
-        Apply Custom Mix
-      </Button>
+      {onApply && (
+        <Button className="w-full md:w-auto" onClick={onApply}>
+          Apply Custom Mix
+        </Button>
+      )}
     </div>
   )
 }
@@ -1102,6 +1418,41 @@ function EmptyFacetPreview({ label }: { label: string }) {
       No {label} token extracted from this reference
     </p>
   )
+}
+
+function resolveGenerationChosen(
+  chosen: IntentSpec['chosen'],
+  fallback: IntentSpec['chosen']
+): IntentSpec['chosen'] {
+  return manualFacetFields.reduce<IntentSpec['chosen']>(
+    (acc, { key }) => ({
+      ...acc,
+      [key]: chosen[key] || fallback[key],
+    }),
+    {}
+  )
+}
+
+function buildGenerationSignature(
+  chosen: IntentSpec['chosen'],
+  brief: GenerationBrief
+): string {
+  return JSON.stringify({
+    chosen,
+    brief: {
+      prompt: brief.prompt.trim(),
+      variantCount: brief.variantCount,
+      screens: brief.screens.map((screen) => ({
+        type: screen.type,
+        name: screen.name.trim(),
+        notes: screen.notes?.trim() || '',
+      })),
+    },
+  })
+}
+
+function getScreenTypeLabel(type: ScreenPlanType): string {
+  return screenPlanOptions.find((option) => option.value === type)?.label || 'Custom'
 }
 
 async function readApiResponse<T>(
