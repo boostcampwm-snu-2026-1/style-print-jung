@@ -26,7 +26,11 @@ import {
   adjustForContrast,
 } from './color-extractor'
 import { generateUICode } from './v0-client'
-import { writePreviewArtifact } from './preview-artifact'
+import {
+  capturePreviewScreenshot,
+  readPreviewArtifactFile,
+  writePreviewArtifact,
+} from './preview-artifact'
 import {
   analyzeDesignFacets,
   auditGeneratedCodeWithOpenAI,
@@ -44,6 +48,7 @@ import type {
   ExtractResponse,
   FacetDiff,
   FacetPack,
+  GenerateRequest,
   GenerateResponse,
   GeneratedCode,
   IntentSpec,
@@ -99,6 +104,20 @@ app.get('/uploads/:filename', async (request, reply) => {
   } catch {
     reply.status(404).send({ success: false, error: 'File not found' })
   }
+})
+
+app.get('/generated-previews/:previewId/:filename', async (request, reply) => {
+  const { previewId, filename } = request.params as {
+    previewId: string
+    filename: string
+  }
+  const artifact = await readPreviewArtifactFile(previewId, filename)
+
+  if (!artifact) {
+    return reply.status(404).send({ success: false, error: 'Preview file not found' })
+  }
+
+  return reply.type(artifact.contentType).send(artifact.buffer)
 })
 
 app.post('/api/references/upload', async (request, reply) => {
@@ -328,7 +347,10 @@ app.post('/api/facets/extract', async (request, reply) => {
 
 app.post('/api/intents/create', async (request, reply) => {
   try {
-    const { chosen } = request.body as { chosen?: IntentSpec['chosen'] }
+    const { chosen, generationBrief } = request.body as {
+      chosen?: IntentSpec['chosen']
+      generationBrief?: IntentSpec['generationBrief']
+    }
 
     if (!chosen) {
       return reply
@@ -336,59 +358,7 @@ app.post('/api/intents/create', async (request, reply) => {
         .send({ success: false, error: 'No chosen facets provided' } satisfies CreateIntentResponse)
     }
 
-    const normalized: IntentSpec['normalized'] = {}
-    const provenance: IntentSpec['provenance'] = {}
-
-    if (chosen.colorRefId) {
-      const pack = await getFacetPackByRefId(chosen.colorRefId)
-      if (pack) {
-        const colorTokens = pack.tokens.filter((t) => t.facetType === 'color')
-        const palette: Record<ColorRole, string> = {} as Record<ColorRole, string>
-        colorTokens.forEach((t) => {
-          if (t.facetType === 'color') {
-            palette[t.value.role] = t.value.hex
-            provenance[`palette.${t.value.role}`] = { refId: chosen.colorRefId! }
-          }
-        })
-        normalized.palette = palette
-      }
-    }
-
-    if (chosen.typographyRefId) {
-      const pack = await getFacetPackByRefId(chosen.typographyRefId)
-      const typoToken = pack?.tokens.find((t) => t.facetType === 'typography')
-      if (typoToken?.facetType === 'typography') {
-        normalized.typography = typoToken.value
-        provenance.typography = { refId: chosen.typographyRefId }
-      }
-    }
-
-    if (chosen.layoutRefId) {
-      const pack = await getFacetPackByRefId(chosen.layoutRefId)
-      const layoutToken = pack?.tokens.find((t) => t.facetType === 'layout')
-      if (layoutToken?.facetType === 'layout') {
-        normalized.layout = layoutToken.value
-        provenance.layout = { refId: chosen.layoutRefId }
-      }
-    }
-
-    if (chosen.spacingRefId) {
-      const pack = await getFacetPackByRefId(chosen.spacingRefId)
-      const spacingToken = pack?.tokens.find((t) => t.facetType === 'spacing')
-      if (spacingToken?.facetType === 'spacing') {
-        normalized.spacing = spacingToken.value
-        provenance.spacing = { refId: chosen.spacingRefId }
-      }
-    }
-
-    if (chosen.componentStyleRefId) {
-      const pack = await getFacetPackByRefId(chosen.componentStyleRefId)
-      const styleToken = pack?.tokens.find((t) => t.facetType === 'componentStyle')
-      if (styleToken?.facetType === 'componentStyle') {
-        normalized.componentStyle = styleToken.value
-        provenance.componentStyle = { refId: chosen.componentStyleRefId }
-      }
-    }
+    const { normalized, provenance } = await buildIntentFromChosen(chosen)
 
     const intentSpec: IntentSpec = {
       id: nanoid(),
@@ -400,6 +370,7 @@ app.post('/api/intents/create', async (request, reply) => {
       history: [],
       createdAt: Date.now(),
       targetExport: MVP_EXPORT_TARGET,
+      generationBrief,
     }
 
     await saveIntentSpec(intentSpec)
@@ -537,10 +508,12 @@ app.post('/api/intents/apply-repair', async (request, reply) => {
 
 app.post('/api/generate/v0', async (request, reply) => {
   try {
-    const { intentSpecId, stepMode } = request.body as {
-      intentSpecId?: string
-      stepMode?: GeneratedCode['mode']
-    }
+    const {
+      intentSpecId,
+      stepMode,
+      chosen,
+      generationBrief,
+    } = request.body as Partial<GenerateRequest>
 
     if (!intentSpecId) {
       return reply
@@ -555,18 +528,47 @@ app.post('/api/generate/v0', async (request, reply) => {
         .send({ success: false, error: 'IntentSpec not found' } satisfies GenerateResponse)
     }
 
+    if (chosen) {
+      const { normalized, provenance } = await buildIntentFromChosen(chosen)
+      intentSpec.chosen = chosen
+      intentSpec.normalized = normalized
+      intentSpec.provenance = provenance
+    }
+
+    if (generationBrief) {
+      intentSpec.generationBrief = generationBrief
+    }
+
+    const evaluated = evaluateIntentSpec(intentSpec)
+    intentSpec.conflicts = evaluated.conflicts
+    intentSpec.repairs = evaluated.repairs
+    intentSpec.coherenceScore = evaluated.coherenceScore
+
+    await saveIntentSpec(intentSpec)
+
     const generated = await generateUICode(
       buildIntentExportPrompt(intentSpec, MVP_EXPORT_TARGET),
       stepMode || 'single'
     )
 
     const generatedCodeId = nanoid()
-    const previewUrl = await writePreviewArtifact({
-      id: generatedCodeId,
-      code: generated.code,
-      files: generated.files,
-      entryFile: generated.entryFile,
-    })
+    let previewUrl: string | undefined
+    let screenshotError: string | undefined
+
+    try {
+      const previewPath = await writePreviewArtifact({
+        id: generatedCodeId,
+        code: generated.code,
+        files: generated.files,
+        entryFile: generated.entryFile,
+      })
+      previewUrl = toApiAssetUrl(previewPath, request.headers)
+    } catch (error) {
+      request.log.error(error)
+      screenshotError =
+        error instanceof Error ? `Preview unavailable: ${error.message}` : 'Preview unavailable'
+    }
+
     const generatedCode: GeneratedCode = {
       id: generatedCodeId,
       intentSpecId,
@@ -575,12 +577,19 @@ app.post('/api/generate/v0', async (request, reply) => {
       files: generated.files,
       entryFile: generated.entryFile,
       previewUrl,
+      screenshotError,
       createdAt: Date.now(),
     }
 
     await saveGeneratedCode(generatedCode)
 
-    return reply.send({ success: true, generatedCode } satisfies GenerateResponse)
+    if (previewUrl) {
+      void captureAndSaveScreenshot(generatedCode, previewUrl, request.headers).catch((error) => {
+        request.log.error(error)
+      })
+    }
+
+    return reply.send({ success: true, generatedCode, intentSpec } satisfies GenerateResponse)
   } catch (error) {
     request.log.error(error)
     return reply.status(500).send({
@@ -613,7 +622,10 @@ app.post('/api/preview/build', async (request, reply) => {
       entryFile,
     })
 
-    return reply.send({ success: true, previewUrl } satisfies PreviewBuildResponse)
+    return reply.send({
+      success: true,
+      previewUrl: toApiAssetUrl(previewUrl, request.headers),
+    } satisfies PreviewBuildResponse)
   } catch (error) {
     request.log.error(error)
     return reply.status(500).send({
@@ -733,6 +745,121 @@ async function getReferenceImageDataUrl(
 
   const buffer = await fs.readFile(path.join(process.cwd(), relativePath))
   return `data:${reference.mime};base64,${buffer.toString('base64')}`
+}
+
+async function captureAndSaveScreenshot(
+  generatedCode: GeneratedCode,
+  previewUrl: string,
+  headers: Record<string, string | string[] | undefined>
+) {
+  const screenshot = await capturePreviewScreenshot({
+    id: generatedCode.id,
+    previewUrl,
+    webOrigin: getApiOrigin(headers) || config.api.webOrigin,
+  })
+
+  await saveGeneratedCode({
+    ...generatedCode,
+    screenshotUrl: screenshot.screenshotUrl
+      ? toApiAssetUrl(screenshot.screenshotUrl, headers)
+      : undefined,
+    screenshotError: screenshot.error,
+  })
+}
+
+function toApiAssetUrl(
+  assetPath: string,
+  headers: Record<string, string | string[] | undefined>
+): string {
+  if (/^(https?:|data:|blob:)/.test(assetPath)) {
+    return assetPath
+  }
+
+  const origin = getApiOrigin(headers)
+  return origin ? `${origin}${assetPath}` : assetPath
+}
+
+function getApiOrigin(
+  headers: Record<string, string | string[] | undefined>
+): string | null {
+  const host = getHeader(headers, 'x-forwarded-host') || getHeader(headers, 'host')
+
+  if (!host) {
+    return null
+  }
+
+  const proto = getHeader(headers, 'x-forwarded-proto') || 'http'
+  return `${proto.split(',')[0].trim()}://${host.split(',')[0].trim()}`
+}
+
+function getHeader(
+  headers: Record<string, string | string[] | undefined>,
+  name: string
+): string | null {
+  const value = headers[name]
+  if (Array.isArray(value)) return value[0] || null
+  return value || null
+}
+
+async function buildIntentFromChosen(chosen: IntentSpec['chosen']): Promise<{
+  normalized: IntentSpec['normalized']
+  provenance: IntentSpec['provenance']
+}> {
+  const normalized: IntentSpec['normalized'] = {}
+  const provenance: IntentSpec['provenance'] = {}
+
+  if (chosen.colorRefId) {
+    const pack = await getFacetPackByRefId(chosen.colorRefId)
+    if (pack) {
+      const colorTokens = pack.tokens.filter((t) => t.facetType === 'color')
+      const palette: Record<ColorRole, string> = {} as Record<ColorRole, string>
+      colorTokens.forEach((t) => {
+        if (t.facetType === 'color') {
+          palette[t.value.role] = t.value.hex
+          provenance[`palette.${t.value.role}`] = { refId: chosen.colorRefId! }
+        }
+      })
+      normalized.palette = palette
+    }
+  }
+
+  if (chosen.typographyRefId) {
+    const pack = await getFacetPackByRefId(chosen.typographyRefId)
+    const typoToken = pack?.tokens.find((t) => t.facetType === 'typography')
+    if (typoToken?.facetType === 'typography') {
+      normalized.typography = typoToken.value
+      provenance.typography = { refId: chosen.typographyRefId }
+    }
+  }
+
+  if (chosen.layoutRefId) {
+    const pack = await getFacetPackByRefId(chosen.layoutRefId)
+    const layoutToken = pack?.tokens.find((t) => t.facetType === 'layout')
+    if (layoutToken?.facetType === 'layout') {
+      normalized.layout = layoutToken.value
+      provenance.layout = { refId: chosen.layoutRefId }
+    }
+  }
+
+  if (chosen.spacingRefId) {
+    const pack = await getFacetPackByRefId(chosen.spacingRefId)
+    const spacingToken = pack?.tokens.find((t) => t.facetType === 'spacing')
+    if (spacingToken?.facetType === 'spacing') {
+      normalized.spacing = spacingToken.value
+      provenance.spacing = { refId: chosen.spacingRefId }
+    }
+  }
+
+  if (chosen.componentStyleRefId) {
+    const pack = await getFacetPackByRefId(chosen.componentStyleRefId)
+    const styleToken = pack?.tokens.find((t) => t.facetType === 'componentStyle')
+    if (styleToken?.facetType === 'componentStyle') {
+      normalized.componentStyle = styleToken.value
+      provenance.componentStyle = { refId: chosen.componentStyleRefId }
+    }
+  }
+
+  return { normalized, provenance }
 }
 
 function evaluateIntentSpec(intentSpec: IntentSpec): {

@@ -124,6 +124,28 @@ export type IntentExportTarget = {
   description: string
 }
 
+export type ScreenPlanType =
+  | 'home'
+  | 'hamburgerMenu'
+  | 'dashboard'
+  | 'list'
+  | 'detail'
+  | 'form'
+  | 'custom'
+
+export type ScreenPlanItem = {
+  id: string
+  type: ScreenPlanType
+  name: string
+  notes?: string
+}
+
+export type GenerationBrief = {
+  prompt: string
+  screens: ScreenPlanItem[]
+  variantCount: 1 | 2 | 3
+}
+
 export type IntentSpec = {
   id: string
   chosen: {
@@ -147,6 +169,7 @@ export type IntentSpec = {
   createdAt: number
   coherenceScore?: number
   targetExport: IntentExportTarget
+  generationBrief?: GenerationBrief
 }
 
 // ============================================
@@ -228,6 +251,8 @@ export type GeneratedCode = {
   files?: GeneratedCodeFile[]
   entryFile?: string
   previewUrl?: string
+  screenshotUrl?: string
+  screenshotError?: string
   steps?: GenerationStep[]
   createdAt: number
 }
@@ -293,6 +318,7 @@ export type ExtractResponse = {
 
 export type CreateIntentRequest = {
   chosen: IntentSpec['chosen']
+  generationBrief?: GenerationBrief
 }
 
 export type CreateIntentResponse = {
@@ -327,11 +353,14 @@ export type ApplyRepairResponse = {
 export type GenerateRequest = {
   intentSpecId: string
   stepMode: GenerationMode
+  chosen?: IntentSpec['chosen']
+  generationBrief?: GenerationBrief
 }
 
 export type GenerateResponse = {
   success: boolean
   generatedCode?: GeneratedCode
+  intentSpec?: IntentSpec
   error?: string
 }
 

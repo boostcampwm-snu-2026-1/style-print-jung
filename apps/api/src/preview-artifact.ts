@@ -1,5 +1,7 @@
 import { promises as fs } from 'fs'
 import path from 'path'
+import { pathToFileURL } from 'url'
+import { build } from 'esbuild'
 import type { GeneratedCodeFile } from '@style-print-jung/shared'
 
 type PreviewInput = {
@@ -10,6 +12,33 @@ type PreviewInput = {
 }
 
 type PreviewFileMap = Map<string, string>
+
+type ScreenshotResult = {
+  screenshotUrl?: string
+  error?: string
+}
+
+type PreviewArtifactFile = {
+  buffer: Buffer
+  contentType: string
+}
+
+type BrowserPage = {
+  goto: (url: string, options: { waitUntil: 'networkidle'; timeout: number }) => Promise<unknown>
+  screenshot: (options: { path: string; fullPage: boolean }) => Promise<unknown>
+  close: () => Promise<unknown>
+}
+
+type Browser = {
+  newPage: (options: { viewport: { width: number; height: number } }) => Promise<BrowserPage>
+  close: () => Promise<unknown>
+}
+
+type PlaywrightModule = {
+  chromium?: {
+    launch: (options: { headless: boolean }) => Promise<Browser>
+  }
+}
 
 const workspaceRoot = process.cwd()
 const sourcePreviewRoot = path.join(workspaceRoot, '.styleprint-preview')
@@ -36,15 +65,137 @@ export async function writePreviewArtifact(input: PreviewInput): Promise<string>
     await writePreviewFile(sourceDir, previewPath, code)
   }
 
+  const bundle = await bundlePreview(path.join(sourceDir, 'main.tsx'), publicDir)
   const cacheKey = Date.now()
-  const entryPath = toViteFsPath(path.join(sourceDir, 'main.tsx'))
+
+  await fs.writeFile(path.join(publicDir, 'preview.js'), bundle.js, 'utf8')
+  if (bundle.css) {
+    await fs.writeFile(path.join(publicDir, 'preview.css'), bundle.css, 'utf8')
+  }
   await fs.writeFile(
     path.join(publicDir, 'index.html'),
-    buildPreviewHtml(entryPath, cacheKey),
+    buildPreviewHtml(cacheKey, Boolean(bundle.css)),
     'utf8'
   )
 
   return `/generated-previews/${previewId}/index.html?t=${cacheKey}`
+}
+
+export async function readPreviewArtifactFile(
+  id: string,
+  filename: string
+): Promise<PreviewArtifactFile | null> {
+  const previewId = sanitizePreviewId(id)
+  const safeName = path.basename(filename)
+
+  if (!['index.html', 'preview.js', 'preview.css', 'screenshot.png'].includes(safeName)) {
+    return null
+  }
+
+  try {
+    const buffer = await fs.readFile(path.join(publicPreviewRoot, previewId, safeName))
+    return { buffer, contentType: getPreviewContentType(safeName) }
+  } catch {
+    return null
+  }
+}
+
+export async function capturePreviewScreenshot(input: {
+  id: string
+  previewUrl: string
+  webOrigin: string
+}): Promise<ScreenshotResult> {
+  const previewId = sanitizePreviewId(input.id)
+  const publicDir = path.join(publicPreviewRoot, previewId)
+  const screenshotPath = path.join(publicDir, 'screenshot.png')
+  const screenshotUrl = `/generated-previews/${previewId}/screenshot.png?t=${Date.now()}`
+
+  const playwright = await loadPlaywright()
+  if (!playwright?.chromium) {
+    return { error: 'Playwright is not installed' }
+  }
+
+  const urls = [
+    new URL(input.previewUrl, input.webOrigin).toString(),
+    pathToFileURL(path.join(publicDir, 'index.html')).toString(),
+  ]
+
+  let browser: Browser | null = null
+  let lastError = ''
+
+  try {
+    browser = await playwright.chromium.launch({ headless: true })
+
+    for (const url of urls) {
+      const page = await browser.newPage({ viewport: { width: 1440, height: 900 } })
+      try {
+        await page.goto(url, { waitUntil: 'networkidle', timeout: 15_000 })
+        await page.screenshot({ path: screenshotPath, fullPage: true })
+        await page.close()
+        return { screenshotUrl }
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : 'Screenshot capture failed'
+        await page.close().catch(() => undefined)
+      }
+    }
+  } catch (error) {
+    lastError = error instanceof Error ? error.message : 'Screenshot capture failed'
+  } finally {
+    await browser?.close().catch(() => undefined)
+  }
+
+  return { error: lastError || 'Screenshot capture failed' }
+}
+
+async function loadPlaywright(): Promise<PlaywrightModule | null> {
+  try {
+    const dynamicImport = new Function('specifier', 'return import(specifier)') as (
+      specifier: string
+    ) => Promise<PlaywrightModule>
+    return await dynamicImport('playwright')
+  } catch {
+    return null
+  }
+}
+
+// Compile the generated component (plus React) into a single self-contained
+// IIFE bundle. This deliberately avoids the Vite dev server's on-the-fly `/@fs`
+// transform, which injects `@vitejs/plugin-react` Fast Refresh code that only
+// works when its preamble is present in a Vite-processed HTML entry. Our preview
+// HTML is a static file, so that preamble is never injected and the runtime
+// throws "can't detect preamble". A pre-built bundle has no such dependency and
+// renders identically in dev and in a static (Vercel) deployment.
+async function bundlePreview(
+  entryFile: string,
+  outDir: string
+): Promise<{ js: string; css?: string }> {
+  const result = await build({
+    entryPoints: [entryFile],
+    bundle: true,
+    write: false,
+    format: 'iife',
+    platform: 'browser',
+    target: 'es2020',
+    jsx: 'automatic',
+    loader: { '.css': 'css' },
+    absWorkingDir: workspaceRoot,
+    outdir: outDir,
+    define: { 'process.env.NODE_ENV': '"production"' },
+    logLevel: 'silent',
+  })
+
+  let js = ''
+  let css: string | undefined
+
+  for (const file of result.outputFiles) {
+    if (file.path.endsWith('.css')) {
+      css = file.text
+    } else if (file.path.endsWith('.js')) {
+      js = file.text
+    }
+  }
+
+  return { js, css }
 }
 
 function buildPreviewFiles(input: PreviewInput): PreviewFileMap {
@@ -170,9 +321,10 @@ function buildCss(files: GeneratedCodeFile[]): string {
     .filter(Boolean)
     .join('\n\n')
 
+  // Fonts are loaded via <link> in the preview HTML head, so no @import here —
+  // a stray @import after these rules violates the CSS spec ("@import must
+  // precede all other statements") and breaks the esbuild CSS bundle.
   return `
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+KR:wght@400;500;600;700&display=swap');
-
 :root {
   --background: 0 0% 100%;
   --foreground: 222.2 84% 4.9%;
@@ -527,7 +679,10 @@ function isCssFile(filePath: string): boolean {
 function sanitizeGeneratedCss(code: string): string {
   return removeCssAtRuleBlock(
     code
-      .replace(/@import\s+['"](tailwindcss|tw-animate-css)['"];\s*/g, '')
+      // Drop every @import: bare tailwind/tw-animate directives and remote font
+      // URLs alike. Fonts are loaded via <link> in the preview HTML head, and a
+      // generated @import placed after other rules breaks CSS bundling.
+      .replace(/@import[^;]*;\s*/g, '')
       .replace(/@custom-variant[^\n]*\n/g, '')
       .replace(/^\s*@apply[^\n;]*;?\s*$/gm, ''),
     ['@theme', '@layer']
@@ -542,9 +697,15 @@ function removeCssAtRuleBlock(code: string, atRules: string[]): string {
 
     while (index >= 0) {
       const openBrace = output.indexOf('{', index)
+      const statementEnd = output.indexOf(';', index)
 
       if (openBrace < 0) {
         break
+      }
+
+      if (statementEnd >= 0 && statementEnd < openBrace) {
+        index = output.indexOf(atRule, statementEnd + 1)
+        continue
       }
 
       let depth = 0
@@ -588,27 +749,41 @@ async function writePreviewFile(
   await fs.writeFile(filePath, code, 'utf8')
 }
 
-function buildPreviewHtml(entryPath: string, cacheKey: number): string {
+function buildPreviewHtml(cacheKey: number, hasCss: boolean): string {
+  const cssLink = hasCss
+    ? `\n    <link rel="stylesheet" href="./preview.css?t=${cacheKey}" />`
+    : ''
+
   return `<!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+KR:wght@400;500;600;700&display=swap"
+    />
+    <script src="https://cdn.tailwindcss.com"></script>${cssLink}
     <title>StylePrint Preview</title>
   </head>
   <body>
     <div id="root"></div>
-    <script type="module" src="${entryPath}?t=${cacheKey}"></script>
+    <script src="./preview.js?t=${cacheKey}"></script>
   </body>
 </html>
 `
 }
 
-function toViteFsPath(filePath: string): string {
-  return encodeURI(`/@fs${path.resolve(filePath).replace(/\\/g, '/')}`)
-}
-
 function sanitizePreviewId(id: string): string {
   return id.replace(/[^a-zA-Z0-9_-]/g, '_')
+}
+
+function getPreviewContentType(filename: string): string {
+  if (filename.endsWith('.html')) return 'text/html; charset=utf-8'
+  if (filename.endsWith('.js')) return 'text/javascript; charset=utf-8'
+  if (filename.endsWith('.css')) return 'text/css; charset=utf-8'
+  if (filename.endsWith('.png')) return 'image/png'
+  return 'application/octet-stream'
 }

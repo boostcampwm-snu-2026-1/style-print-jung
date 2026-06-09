@@ -9,6 +9,8 @@ import type {
   PreviewBuildResponse,
 } from '@/lib/types'
 
+const EMPTY_FILES: GeneratedCodeFile[] = []
+
 interface PreviewPaneProps {
   id: string
   code: string
@@ -21,11 +23,12 @@ interface PreviewPaneProps {
 export function PreviewPane({
   id,
   code,
-  files = [],
+  files,
   entryFile,
   previewUrl,
   className,
 }: PreviewPaneProps) {
+  const previewFiles = files ?? EMPTY_FILES
   const [resolvedPreviewUrl, setResolvedPreviewUrl] = useState(previewUrl)
   const [error, setError] = useState<string | null>(null)
   const [building, setBuilding] = useState(false)
@@ -47,7 +50,7 @@ export function PreviewPane({
         const response = await fetch(apiUrl('/api/preview/build'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id, code, files, entryFile }),
+          body: JSON.stringify({ id, code, files: previewFiles, entryFile }),
           signal: controller.signal,
         })
         const data = (await response.json()) as PreviewBuildResponse
@@ -75,7 +78,7 @@ export function PreviewPane({
     buildPreview()
 
     return () => controller.abort()
-  }, [code, entryFile, files, id, previewUrl])
+  }, [code, entryFile, id, previewFiles, previewUrl])
 
   return (
     <div className={cn('overflow-hidden rounded-md border bg-background', className)}>
