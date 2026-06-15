@@ -1,11 +1,15 @@
 import Fastify from 'fastify'
+import multipart from '@fastify/multipart'
 import { nanoid } from 'nanoid'
+import { createWriteStream } from 'fs'
 import { promises as fs } from 'fs'
 import path from 'path'
+import { pipeline } from 'stream/promises'
 import { config } from './config'
 import {
   getReference,
   getReferences,
+  clearRuntimeData,
   saveReference,
   deleteReference,
   saveFacetPack,
@@ -23,9 +27,15 @@ import {
 } from './color-extractor'
 import { generateUICode } from './v0-client'
 import {
+  capturePreviewScreenshot,
+  readPreviewArtifactFile,
+  writePreviewArtifact,
+} from './preview-artifact'
+import {
   analyzeDesignFacets,
   auditGeneratedCodeWithOpenAI,
 } from './openai-client'
+import { buildIntentExportPrompt } from './prompts/intent-export'
 import type {
   AuditReport,
   AuditResponse,
@@ -38,9 +48,11 @@ import type {
   ExtractResponse,
   FacetDiff,
   FacetPack,
+  GenerateRequest,
   GenerateResponse,
   GeneratedCode,
   IntentSpec,
+  PreviewBuildResponse,
   ProvenanceBadge,
   ReferenceAsset,
   RepairPlan,
@@ -48,7 +60,23 @@ import type {
   UploadResponse,
 } from '@style-print-jung/shared'
 
-const app = Fastify({ logger: true })
+const MVP_EXPORT_TARGET: IntentSpec['targetExport'] = {
+  format: 'react-tailwind',
+  label: 'React + Tailwind',
+  description: 'MVP export target; the IntentSpec remains framework-neutral.',
+}
+
+const app = Fastify({
+  logger: { level: process.env.LOG_LEVEL || 'error' },
+})
+
+const shouldClearRuntimeOnStart = process.env.CLEAR_RUNTIME_ON_START === 'true'
+
+app.register(multipart, {
+  limits: {
+    fileSize: config.upload.maxFileSize,
+  },
+})
 
 app.addHook('onRequest', async (_request, reply) => {
   reply.header('Access-Control-Allow-Origin', config.api.webOrigin)
@@ -78,43 +106,76 @@ app.get('/uploads/:filename', async (request, reply) => {
   }
 })
 
-app.post('/api/references/upload', async (request, reply) => {
-  try {
-    const { files } = request.body as { files: string[] }
+app.get('/generated-previews/:previewId/:filename', async (request, reply) => {
+  const { previewId, filename } = request.params as {
+    previewId: string
+    filename: string
+  }
+  const artifact = await readPreviewArtifactFile(previewId, filename)
 
-    if (!files || !Array.isArray(files) || files.length === 0) {
+  if (!artifact) {
+    return reply.status(404).send({ success: false, error: 'Preview file not found' })
+  }
+
+  return reply.type(artifact.contentType).send(artifact.buffer)
+})
+
+app.post('/api/references/upload', async (request, reply) => {
+  // Files saved so far this request, so we can roll back on any failure and
+  // never leave a partial upload (some files persisted, some rejected) behind.
+  const references: ReferenceAsset[] = []
+
+  const rollback = async () => {
+    for (const reference of references) {
+      await deleteStoredReferenceFile(reference).catch(() => undefined)
+      await deleteReference(reference.id).catch(() => undefined)
+    }
+    references.length = 0
+  }
+
+  try {
+    if (!request.isMultipart()) {
       return reply
         .status(400)
-        .send({ success: false, references: [], error: 'No files provided' } satisfies UploadResponse)
+        .send({ success: false, references: [], error: 'Expected multipart upload' } satisfies UploadResponse)
     }
 
-    const references: ReferenceAsset[] = []
     await ensureUploadDir()
 
-    for (let i = 0; i < files.length; i++) {
-      const dataUrl = files[i]
-      const validation = validateBase64Image(dataUrl)
+    let fileIndex = 0
+    for await (const file of request.files()) {
+      const mime = file.mimetype.toLowerCase()
 
-      if (!validation.valid) {
+      if (!config.upload.allowedMimes.includes(mime)) {
+        // Drain the rejected file's stream so the multipart request can finish
+        // cleanly, then undo anything already saved in this batch.
+        await file.toBuffer().catch(() => undefined)
+        await rollback()
         return reply.status(400).send({
           success: false,
           references: [],
-          error: `File ${i + 1}: ${validation.error}`,
+          error: `File ${fileIndex + 1}: Unsupported image type: ${mime}. Allowed: ${config.upload.allowedMimes.join(', ')}`,
         } satisfies UploadResponse)
       }
 
       const id = nanoid()
-      const extension = config.upload.mimeExtensions[validation.mime!]
-      const filename = `reference-${Date.now()}-${i}-${id}.${extension}`
+      const extension = config.upload.mimeExtensions[mime]
+      const filename = `reference-${Date.now()}-${fileIndex}-${id}.${extension}`
       const storagePath = `public/uploads/${filename}`
       const url = `/uploads/${filename}`
+      const filePath = path.join(config.upload.dir, filename)
 
-      await fs.writeFile(path.join(config.upload.dir, filename), validation.buffer!)
+      try {
+        await pipeline(file.file, createWriteStream(filePath))
+      } catch (error) {
+        await fs.unlink(filePath).catch(() => undefined)
+        throw error
+      }
 
       const reference: ReferenceAsset = {
         id,
         filename,
-        mime: validation.mime!,
+        mime,
         width: 0,
         height: 0,
         url,
@@ -124,11 +185,26 @@ app.post('/api/references/upload', async (request, reply) => {
 
       await saveReference(reference)
       references.push(reference)
+      fileIndex += 1
+    }
+
+    if (references.length === 0) {
+      return reply
+        .status(400)
+        .send({ success: false, references: [], error: 'No files provided' } satisfies UploadResponse)
     }
 
     return reply.send({ success: true, references } satisfies UploadResponse)
   } catch (error) {
     request.log.error(error)
+    await rollback()
+    if (error instanceof app.multipartErrors.RequestFileTooLargeError) {
+      return reply.status(413).send({
+        success: false,
+        references: [],
+        error: `File too large. Maximum size: ${config.upload.maxFileSize / 1024 / 1024}MB`,
+      } satisfies UploadResponse)
+    }
     return reply.status(500).send({
       success: false,
       references: [],
@@ -271,7 +347,10 @@ app.post('/api/facets/extract', async (request, reply) => {
 
 app.post('/api/intents/create', async (request, reply) => {
   try {
-    const { chosen } = request.body as { chosen?: IntentSpec['chosen'] }
+    const { chosen, generationBrief } = request.body as {
+      chosen?: IntentSpec['chosen']
+      generationBrief?: IntentSpec['generationBrief']
+    }
 
     if (!chosen) {
       return reply
@@ -279,59 +358,7 @@ app.post('/api/intents/create', async (request, reply) => {
         .send({ success: false, error: 'No chosen facets provided' } satisfies CreateIntentResponse)
     }
 
-    const normalized: IntentSpec['normalized'] = {}
-    const provenance: IntentSpec['provenance'] = {}
-
-    if (chosen.colorRefId) {
-      const pack = await getFacetPackByRefId(chosen.colorRefId)
-      if (pack) {
-        const colorTokens = pack.tokens.filter((t) => t.facetType === 'color')
-        const palette: Record<ColorRole, string> = {} as Record<ColorRole, string>
-        colorTokens.forEach((t) => {
-          if (t.facetType === 'color') {
-            palette[t.value.role] = t.value.hex
-            provenance[`palette.${t.value.role}`] = { refId: chosen.colorRefId! }
-          }
-        })
-        normalized.palette = palette
-      }
-    }
-
-    if (chosen.typographyRefId) {
-      const pack = await getFacetPackByRefId(chosen.typographyRefId)
-      const typoToken = pack?.tokens.find((t) => t.facetType === 'typography')
-      if (typoToken?.facetType === 'typography') {
-        normalized.typography = typoToken.value
-        provenance.typography = { refId: chosen.typographyRefId }
-      }
-    }
-
-    if (chosen.layoutRefId) {
-      const pack = await getFacetPackByRefId(chosen.layoutRefId)
-      const layoutToken = pack?.tokens.find((t) => t.facetType === 'layout')
-      if (layoutToken?.facetType === 'layout') {
-        normalized.layout = layoutToken.value
-        provenance.layout = { refId: chosen.layoutRefId }
-      }
-    }
-
-    if (chosen.spacingRefId) {
-      const pack = await getFacetPackByRefId(chosen.spacingRefId)
-      const spacingToken = pack?.tokens.find((t) => t.facetType === 'spacing')
-      if (spacingToken?.facetType === 'spacing') {
-        normalized.spacing = spacingToken.value
-        provenance.spacing = { refId: chosen.spacingRefId }
-      }
-    }
-
-    if (chosen.componentStyleRefId) {
-      const pack = await getFacetPackByRefId(chosen.componentStyleRefId)
-      const styleToken = pack?.tokens.find((t) => t.facetType === 'componentStyle')
-      if (styleToken?.facetType === 'componentStyle') {
-        normalized.componentStyle = styleToken.value
-        provenance.componentStyle = { refId: chosen.componentStyleRefId }
-      }
-    }
+    const { normalized, provenance } = await buildIntentFromChosen(chosen)
 
     const intentSpec: IntentSpec = {
       id: nanoid(),
@@ -342,11 +369,16 @@ app.post('/api/intents/create', async (request, reply) => {
       repairs: [],
       history: [],
       createdAt: Date.now(),
+      targetExport: MVP_EXPORT_TARGET,
+      generationBrief,
     }
 
     await saveIntentSpec(intentSpec)
 
-    return reply.send({ success: true, intentSpec } satisfies CreateIntentResponse)
+    return reply.send({
+      success: true,
+      intentSpec,
+    } satisfies CreateIntentResponse)
   } catch (error) {
     request.log.error(error)
     return reply.status(500).send({
@@ -476,10 +508,12 @@ app.post('/api/intents/apply-repair', async (request, reply) => {
 
 app.post('/api/generate/v0', async (request, reply) => {
   try {
-    const { intentSpecId, stepMode } = request.body as {
-      intentSpecId?: string
-      stepMode?: GeneratedCode['mode']
-    }
+    const {
+      intentSpecId,
+      stepMode,
+      chosen,
+      generationBrief,
+    } = request.body as Partial<GenerateRequest>
 
     if (!intentSpecId) {
       return reply
@@ -494,28 +528,110 @@ app.post('/api/generate/v0', async (request, reply) => {
         .send({ success: false, error: 'IntentSpec not found' } satisfies GenerateResponse)
     }
 
-    const code = await generateUICode(
-      buildGenerationPrompt(intentSpec),
+    if (chosen) {
+      const { normalized, provenance } = await buildIntentFromChosen(chosen)
+      intentSpec.chosen = chosen
+      intentSpec.normalized = normalized
+      intentSpec.provenance = provenance
+    }
+
+    if (generationBrief) {
+      intentSpec.generationBrief = generationBrief
+    }
+
+    const evaluated = evaluateIntentSpec(intentSpec)
+    intentSpec.conflicts = evaluated.conflicts
+    intentSpec.repairs = evaluated.repairs
+    intentSpec.coherenceScore = evaluated.coherenceScore
+
+    await saveIntentSpec(intentSpec)
+
+    const generated = await generateUICode(
+      buildIntentExportPrompt(intentSpec, MVP_EXPORT_TARGET),
       stepMode || 'single'
     )
 
+    const generatedCodeId = nanoid()
+    let previewUrl: string | undefined
+    let screenshotError: string | undefined
+
+    try {
+      const previewPath = await writePreviewArtifact({
+        id: generatedCodeId,
+        code: generated.code,
+        files: generated.files,
+        entryFile: generated.entryFile,
+      })
+      previewUrl = toApiAssetUrl(previewPath, request.headers)
+    } catch (error) {
+      request.log.error(error)
+      screenshotError =
+        error instanceof Error ? `Preview unavailable: ${error.message}` : 'Preview unavailable'
+    }
+
     const generatedCode: GeneratedCode = {
-      id: nanoid(),
+      id: generatedCodeId,
       intentSpecId,
       mode: stepMode || 'single',
-      code,
+      code: generated.code,
+      files: generated.files,
+      entryFile: generated.entryFile,
+      previewUrl,
+      screenshotError,
       createdAt: Date.now(),
     }
 
     await saveGeneratedCode(generatedCode)
 
-    return reply.send({ success: true, generatedCode } satisfies GenerateResponse)
+    if (previewUrl) {
+      void captureAndSaveScreenshot(generatedCode, previewUrl, request.headers).catch((error) => {
+        request.log.error(error)
+      })
+    }
+
+    return reply.send({ success: true, generatedCode, intentSpec } satisfies GenerateResponse)
   } catch (error) {
     request.log.error(error)
     return reply.status(500).send({
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error',
     } satisfies GenerateResponse)
+  }
+})
+
+app.post('/api/preview/build', async (request, reply) => {
+  try {
+    const { id, code, files, entryFile } = request.body as {
+      id?: string
+      code?: string
+      files?: GeneratedCode['files']
+      entryFile?: string
+    }
+
+    if (!id || !code) {
+      return reply.status(400).send({
+        success: false,
+        error: 'No generated code provided',
+      } satisfies PreviewBuildResponse)
+    }
+
+    const previewUrl = await writePreviewArtifact({
+      id,
+      code,
+      files,
+      entryFile,
+    })
+
+    return reply.send({
+      success: true,
+      previewUrl: toApiAssetUrl(previewUrl, request.headers),
+    } satisfies PreviewBuildResponse)
+  } catch (error) {
+    request.log.error(error)
+    return reply.status(500).send({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    } satisfies PreviewBuildResponse)
   }
 })
 
@@ -567,6 +683,10 @@ app.post('/api/audit/analyze', async (request, reply) => {
 
 async function start() {
   try {
+    if (shouldClearRuntimeOnStart) {
+      await clearRuntimeStorage()
+    }
+
     await app.listen({ port: config.api.port, host: '0.0.0.0' })
   } catch (error) {
     app.log.error(error)
@@ -576,44 +696,14 @@ async function start() {
 
 void start()
 
-function validateBase64Image(dataUrl: string): {
-  valid: boolean
-  mime?: string
-  buffer?: Buffer
-  error?: string
-} {
-  const match = dataUrl.match(/^data:(image\/[a-z]+);base64,(.+)$/i)
-  if (!match) {
-    return { valid: false, error: 'Invalid data URL format' }
-  }
-
-  const mime = match[1].toLowerCase()
-  const data = match[2]
-
-  if (!config.upload.allowedMimes.includes(mime)) {
-    return {
-      valid: false,
-      error: `Unsupported image type: ${mime}. Allowed: ${config.upload.allowedMimes.join(', ')}`,
-    }
-  }
-
-  const sizeBytes = (data.length * 3) / 4
-  if (sizeBytes > config.upload.maxFileSize) {
-    return {
-      valid: false,
-      error: `File too large. Maximum size: ${config.upload.maxFileSize / 1024 / 1024}MB`,
-    }
-  }
-
-  try {
-    return { valid: true, mime, buffer: Buffer.from(data, 'base64') }
-  } catch {
-    return { valid: false, error: 'Invalid base64 image data' }
-  }
-}
-
 async function ensureUploadDir() {
   await fs.mkdir(config.upload.dir, { recursive: true })
+}
+
+async function clearRuntimeStorage() {
+  await clearRuntimeData()
+  await fs.rm(config.upload.dir, { recursive: true, force: true })
+  await ensureUploadDir()
 }
 
 async function deleteStoredReferenceFile(reference: ReferenceAsset) {
@@ -655,6 +745,121 @@ async function getReferenceImageDataUrl(
 
   const buffer = await fs.readFile(path.join(process.cwd(), relativePath))
   return `data:${reference.mime};base64,${buffer.toString('base64')}`
+}
+
+async function captureAndSaveScreenshot(
+  generatedCode: GeneratedCode,
+  previewUrl: string,
+  headers: Record<string, string | string[] | undefined>
+) {
+  const screenshot = await capturePreviewScreenshot({
+    id: generatedCode.id,
+    previewUrl,
+    webOrigin: getApiOrigin(headers) || config.api.webOrigin,
+  })
+
+  await saveGeneratedCode({
+    ...generatedCode,
+    screenshotUrl: screenshot.screenshotUrl
+      ? toApiAssetUrl(screenshot.screenshotUrl, headers)
+      : undefined,
+    screenshotError: screenshot.error,
+  })
+}
+
+function toApiAssetUrl(
+  assetPath: string,
+  headers: Record<string, string | string[] | undefined>
+): string {
+  if (/^(https?:|data:|blob:)/.test(assetPath)) {
+    return assetPath
+  }
+
+  const origin = getApiOrigin(headers)
+  return origin ? `${origin}${assetPath}` : assetPath
+}
+
+function getApiOrigin(
+  headers: Record<string, string | string[] | undefined>
+): string | null {
+  const host = getHeader(headers, 'x-forwarded-host') || getHeader(headers, 'host')
+
+  if (!host) {
+    return null
+  }
+
+  const proto = getHeader(headers, 'x-forwarded-proto') || 'http'
+  return `${proto.split(',')[0].trim()}://${host.split(',')[0].trim()}`
+}
+
+function getHeader(
+  headers: Record<string, string | string[] | undefined>,
+  name: string
+): string | null {
+  const value = headers[name]
+  if (Array.isArray(value)) return value[0] || null
+  return value || null
+}
+
+async function buildIntentFromChosen(chosen: IntentSpec['chosen']): Promise<{
+  normalized: IntentSpec['normalized']
+  provenance: IntentSpec['provenance']
+}> {
+  const normalized: IntentSpec['normalized'] = {}
+  const provenance: IntentSpec['provenance'] = {}
+
+  if (chosen.colorRefId) {
+    const pack = await getFacetPackByRefId(chosen.colorRefId)
+    if (pack) {
+      const colorTokens = pack.tokens.filter((t) => t.facetType === 'color')
+      const palette: Record<ColorRole, string> = {} as Record<ColorRole, string>
+      colorTokens.forEach((t) => {
+        if (t.facetType === 'color') {
+          palette[t.value.role] = t.value.hex
+          provenance[`palette.${t.value.role}`] = { refId: chosen.colorRefId! }
+        }
+      })
+      normalized.palette = palette
+    }
+  }
+
+  if (chosen.typographyRefId) {
+    const pack = await getFacetPackByRefId(chosen.typographyRefId)
+    const typoToken = pack?.tokens.find((t) => t.facetType === 'typography')
+    if (typoToken?.facetType === 'typography') {
+      normalized.typography = typoToken.value
+      provenance.typography = { refId: chosen.typographyRefId }
+    }
+  }
+
+  if (chosen.layoutRefId) {
+    const pack = await getFacetPackByRefId(chosen.layoutRefId)
+    const layoutToken = pack?.tokens.find((t) => t.facetType === 'layout')
+    if (layoutToken?.facetType === 'layout') {
+      normalized.layout = layoutToken.value
+      provenance.layout = { refId: chosen.layoutRefId }
+    }
+  }
+
+  if (chosen.spacingRefId) {
+    const pack = await getFacetPackByRefId(chosen.spacingRefId)
+    const spacingToken = pack?.tokens.find((t) => t.facetType === 'spacing')
+    if (spacingToken?.facetType === 'spacing') {
+      normalized.spacing = spacingToken.value
+      provenance.spacing = { refId: chosen.spacingRefId }
+    }
+  }
+
+  if (chosen.componentStyleRefId) {
+    const pack = await getFacetPackByRefId(chosen.componentStyleRefId)
+    const styleToken = pack?.tokens.find((t) => t.facetType === 'componentStyle')
+    if (styleToken?.facetType === 'componentStyle') {
+      normalized.componentStyle = styleToken.value
+      provenance.componentStyle = { refId: chosen.componentStyleRefId }
+    }
+  }
+
+  return { normalized, provenance }
 }
 
 function evaluateIntentSpec(intentSpec: IntentSpec): {
@@ -782,66 +987,6 @@ function evaluateIntentSpec(intentSpec: IntentSpec): {
     repairs,
     coherenceScore: Math.max(0, Math.min(100, coherenceScore)),
   }
-}
-
-function buildGenerationPrompt(intentSpec: IntentSpec): string {
-  const { normalized } = intentSpec
-  let prompt = 'Create a modern, responsive React component using Tailwind CSS with the following design specifications:\n\n'
-
-  if (normalized.palette) {
-    prompt += '## Color Palette\nUse these exact colors:\n'
-    Object.entries(normalized.palette).forEach(([role, hex]) => {
-      prompt += `- ${role}: ${hex}\n`
-    })
-    prompt += '\n'
-  }
-
-  if (normalized.typography) {
-    const typo = normalized.typography
-    prompt += '## Typography\n'
-    if (typo.fontCandidates?.[0]) {
-      prompt += `- Font Family: ${typo.fontCandidates[0].name}\n`
-    }
-    prompt += `- Heading 1: ${typo.scale.h1}px\n`
-    prompt += `- Heading 2: ${typo.scale.h2}px\n`
-    prompt += `- Body: ${typo.scale.body}px\n`
-    prompt += `- Caption: ${typo.scale.caption}px\n`
-    prompt += `- Line Height (body): ${typo.lineHeight.body}\n\n`
-  }
-
-  if (normalized.layout) {
-    prompt += '## Layout\n'
-    prompt += `- Pattern: ${normalized.layout.pattern}\n`
-    if (normalized.layout.columns) {
-      prompt += `- Columns: ${normalized.layout.columns}\n`
-    }
-    prompt += `- Density: ${normalized.layout.density}\n\n`
-  }
-
-  if (normalized.spacing) {
-    prompt += '## Spacing\n'
-    prompt += `- Base unit: ${normalized.spacing.baseUnit}px\n`
-    prompt += `- Scale: ${normalized.spacing.scale.join(', ')}px\n\n`
-  }
-
-  if (normalized.componentStyle) {
-    prompt += '## Component Style\n'
-    prompt += `- Border Radius: ${normalized.componentStyle.radius}\n`
-    prompt += `- Shadow: ${normalized.componentStyle.shadow}\n`
-    prompt += `- Border: ${normalized.componentStyle.border}\n\n`
-  }
-
-  prompt += '## Requirements\n'
-  prompt += '1. Create a complete, functional React component\n'
-  prompt += '2. Use Tailwind CSS classes for all styling\n'
-  prompt += '3. Ensure all color combinations meet WCAG AA contrast requirements (4.5:1 minimum)\n'
-  prompt += '4. Make it responsive (mobile-first approach)\n'
-  prompt += '5. Include proper semantic HTML\n'
-  prompt += '6. Export as default function component\n'
-  prompt += '7. Component should be production-ready\n\n'
-  prompt += 'Generate the complete React component code now.'
-
-  return prompt
 }
 
 function calculateDiffs(

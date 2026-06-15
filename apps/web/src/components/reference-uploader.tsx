@@ -6,6 +6,7 @@ import { Upload, X, Image as ImageIcon, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
+import { apiUrl } from '@/lib/api'
 import { getReferenceImageSrc } from '@/lib/references'
 import type { ReferenceAsset } from '@/lib/types'
 
@@ -31,23 +32,15 @@ export function ReferenceUploader({
       setError(null)
 
       try {
-        // Convert files to base64 dataUrls
-        const dataUrls = await Promise.all(
-          acceptedFiles.map((file) => {
-            return new Promise<string>((resolve, reject) => {
-              const reader = new FileReader()
-              reader.onload = () => resolve(reader.result as string)
-              reader.onerror = reject
-              reader.readAsDataURL(file)
-            })
-          })
-        )
+        const formData = new FormData()
+        acceptedFiles.forEach((file) => {
+          formData.append('files', file)
+        })
 
         // Upload to API
-        const response = await fetch('/api/references/upload', {
+        const response = await fetch(apiUrl('/api/references/upload'), {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ files: dataUrls }),
+          body: formData,
         })
 
         const data = await response.json()
@@ -73,14 +66,15 @@ export function ReferenceUploader({
       'image/png': ['.png'],
       'image/jpeg': ['.jpg', '.jpeg'],
       'image/webp': ['.webp'],
+      'image/svg+xml': ['.svg'],
     },
-    maxSize: 5 * 1024 * 1024, // 5MB
+    maxSize: 100 * 1024 * 1024, // 100MB
     disabled: uploading,
   })
 
   const handleDelete = async (id: string) => {
     try {
-      const response = await fetch(`/api/references/upload?id=${id}`, {
+      const response = await fetch(apiUrl(`/api/references/upload?id=${id}`), {
         method: 'DELETE',
       })
       const data = await response.json()
@@ -117,10 +111,13 @@ export function ReferenceUploader({
               ? 'Drop images here'
               : uploading
                 ? 'Uploading...'
-                : 'Drag & drop UI screenshots'}
+                : 'Drag & drop design assets'}
           </div>
           <p className="text-sm text-muted-foreground">
-            PNG, JPG, WebP up to 5MB each
+            UI screenshots, web/app captures, logos, color palettes, brand moodboards, and simple SVG/PNG/JPEG/WebP assets
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Up to 100MB each
           </p>
         </div>
       </div>

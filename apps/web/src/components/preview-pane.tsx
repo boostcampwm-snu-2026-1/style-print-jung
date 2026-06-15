@@ -1,148 +1,110 @@
 'use client'
 
-import { Sandpack } from '@codesandbox/sandpack-react'
+import { useEffect, useState } from 'react'
+import { AlertTriangle, Loader2 } from 'lucide-react'
+import { apiUrl } from '@/lib/api'
 import { cn } from '@/lib/utils'
+import type {
+  GeneratedCodeFile,
+  PreviewBuildResponse,
+} from '@/lib/types'
+
+const EMPTY_FILES: GeneratedCodeFile[] = []
 
 interface PreviewPaneProps {
+  id: string
   code: string
-  cssVariables?: string
+  files?: GeneratedCodeFile[]
+  entryFile?: string
+  previewUrl?: string
   className?: string
 }
 
-export function PreviewPane({ code, cssVariables = '', className }: PreviewPaneProps) {
-  // Wrap the generated code in an App component
-  const appCode = `
-import GeneratedComponent from './GeneratedComponent';
+export function PreviewPane({
+  id,
+  code,
+  files,
+  entryFile,
+  previewUrl,
+  className,
+}: PreviewPaneProps) {
+  const previewFiles = files ?? EMPTY_FILES
+  const [resolvedPreviewUrl, setResolvedPreviewUrl] = useState(previewUrl)
+  const [error, setError] = useState<string | null>(null)
+  const [building, setBuilding] = useState(false)
 
-export default function App() {
-  return (
-    <div className="min-h-screen bg-background">
-      <GeneratedComponent />
-    </div>
-  );
-}
-`
+  useEffect(() => {
+    setResolvedPreviewUrl(previewUrl)
+    setError(null)
 
-  // Create CSS with Tailwind CDN and custom variables
-  const cssCode = `
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    if (previewUrl) {
+      return
+    }
 
-:root {
-  --background: 0 0% 100%;
-  --foreground: 222.2 84% 4.9%;
-  --card: 0 0% 100%;
-  --card-foreground: 222.2 84% 4.9%;
-  --popover: 0 0% 100%;
-  --popover-foreground: 222.2 84% 4.9%;
-  --primary: 222.2 47.4% 11.2%;
-  --primary-foreground: 210 40% 98%;
-  --secondary: 210 40% 96.1%;
-  --secondary-foreground: 222.2 47.4% 11.2%;
-  --muted: 210 40% 96.1%;
-  --muted-foreground: 215.4 16.3% 46.9%;
-  --accent: 210 40% 96.1%;
-  --accent-foreground: 222.2 47.4% 11.2%;
-  --destructive: 0 84.2% 60.2%;
-  --destructive-foreground: 210 40% 98%;
-  --border: 214.3 31.8% 91.4%;
-  --input: 214.3 31.8% 91.4%;
-  --ring: 222.2 84% 4.9%;
-  --radius: 0.5rem;
-  ${cssVariables}
-}
+    const controller = new AbortController()
 
-* {
-  border-color: hsl(var(--border));
-}
+    async function buildPreview() {
+      setBuilding(true)
 
-body {
-  font-family: 'Inter', system-ui, sans-serif;
-  background-color: hsl(var(--background));
-  color: hsl(var(--foreground));
-}
+      try {
+        const response = await fetch(apiUrl('/api/preview/build'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id, code, files: previewFiles, entryFile }),
+          signal: controller.signal,
+        })
+        const data = (await response.json()) as PreviewBuildResponse
 
-.bg-background {
-  background-color: hsl(var(--background));
-}
+        if (!response.ok || !data.success || !data.previewUrl) {
+          throw new Error(
+            data.error || `Preview build failed (${response.status})`
+          )
+        }
 
-.bg-primary {
-  background-color: hsl(var(--primary));
-}
+        setResolvedPreviewUrl(data.previewUrl)
+      } catch (err) {
+        if (controller.signal.aborted) {
+          return
+        }
 
-.text-primary {
-  color: hsl(var(--primary));
-}
+        setError(err instanceof Error ? err.message : 'Preview build failed')
+      } finally {
+        if (!controller.signal.aborted) {
+          setBuilding(false)
+        }
+      }
+    }
 
-.bg-secondary {
-  background-color: hsl(var(--secondary));
-}
+    buildPreview()
 
-.text-secondary {
-  color: hsl(var(--secondary));
-}
-
-.bg-muted {
-  background-color: hsl(var(--muted));
-}
-
-.text-muted-foreground {
-  color: hsl(var(--muted-foreground));
-}
-
-.bg-card {
-  background-color: hsl(var(--card));
-}
-
-.text-card-foreground {
-  color: hsl(var(--card-foreground));
-}
-
-.border {
-  border-width: 1px;
-}
-
-.rounded-lg {
-  border-radius: var(--radius);
-}
-
-.rounded-md {
-  border-radius: calc(var(--radius) - 2px);
-}
-
-.shadow-sm {
-  box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
-}
-
-.shadow-md {
-  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
-}
-`
+    return () => controller.abort()
+  }, [code, entryFile, id, previewFiles, previewUrl])
 
   return (
-    <div className={cn('rounded-lg overflow-hidden border', className)}>
-      <Sandpack
-        template="react"
-        theme="dark"
-        options={{
-          showNavigator: false,
-          showTabs: true,
-          showLineNumbers: true,
-          editorHeight: 500,
-          externalResources: ['https://cdn.tailwindcss.com'],
-        }}
-        files={{
-          '/App.js': appCode,
-          '/GeneratedComponent.js': {
-            code: code,
-            active: true,
-          },
-          '/styles.css': cssCode,
-        }}
-        customSetup={{
-          entry: '/App.js',
-          dependencies: {},
-        }}
-      />
+    <div className={cn('overflow-hidden rounded-md border bg-background', className)}>
+      {error ? (
+        <div className="flex items-start gap-2 bg-destructive/10 p-3 text-sm text-destructive">
+          <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+          <span>{error}</span>
+        </div>
+      ) : null}
+
+      {building && !resolvedPreviewUrl ? (
+        <div className="flex h-[620px] items-center justify-center gap-2 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Building preview...
+        </div>
+      ) : null}
+
+      {resolvedPreviewUrl ? (
+        <iframe
+          key={resolvedPreviewUrl}
+          title="Generated UI preview"
+          src={resolvedPreviewUrl}
+          sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+          className="block h-[620px] w-full border-0 bg-white"
+        />
+      ) : null}
     </div>
   )
 }

@@ -1,12 +1,20 @@
 import type {
   AuditReport,
   ComponentStyleFacetToken,
+  IntentSpec,
   LayoutFacetToken,
   SpacingFacetToken,
   TypographyFacetToken,
-  IntentSpec,
 } from '@style-print-jung/shared'
 import { config, requireConfig } from './config'
+import {
+  FACET_ANALYSIS_INSTRUCTIONS,
+  buildFacetAnalysisPrompt,
+} from './prompts/facet-analysis'
+import {
+  CODE_AUDIT_INSTRUCTIONS,
+  buildCodeAuditPrompt,
+} from './prompts/code-audit'
 
 type DesignFacetAnalysis = {
   typography: TypographyFacetToken['value']
@@ -28,6 +36,14 @@ type OpenAIResponse = {
   }[]
 }
 
+type OpenAIJSONOptions = {
+  instructions?: string
+  maxOutputTokens?: number
+}
+
+const DEFAULT_JSON_INSTRUCTIONS =
+  'Return JSON that exactly matches the supplied schema.'
+
 export async function analyzeDesignFacets(
   imageDataUrl: string,
   colorPalette: Record<string, string>
@@ -41,12 +57,7 @@ export async function analyzeDesignFacets(
         content: [
           {
             type: 'input_text',
-            text: [
-              'Analyze this UI screenshot and return JSON design facets.',
-              'Do not infer colors; those are provided by the sharp extractor.',
-              `Sharp palette: ${JSON.stringify(colorPalette)}`,
-              'Focus on typography, layout, spacing, component style, and 3-6 mood keywords.',
-            ].join('\n'),
+            text: buildFacetAnalysisPrompt({ colorPalette }),
           },
           {
             type: 'input_image',
@@ -55,7 +66,8 @@ export async function analyzeDesignFacets(
           },
         ],
       },
-    ]
+    ],
+    { instructions: FACET_ANALYSIS_INSTRUCTIONS }
   )
 
   return normalizeDesignFacetAnalysis(analysis)
@@ -74,18 +86,12 @@ export async function auditGeneratedCodeWithOpenAI(
         content: [
           {
             type: 'input_text',
-            text: [
-              'Audit the generated React + Tailwind code against the expected IntentSpec.',
-              'Return the design facets that are actually expressed in the code.',
-              `Expected IntentSpec normalized facets: ${JSON.stringify(intentSpec.normalized)}`,
-              'Generated code:',
-              code,
-            ].join('\n\n'),
+            text: buildCodeAuditPrompt({ code, intentSpec }),
           },
         ],
       },
     ],
-    3000
+    { instructions: CODE_AUDIT_INSTRUCTIONS, maxOutputTokens: 3000 }
   )
 
   return normalizeAuditFacets(audit)
@@ -95,7 +101,7 @@ async function callOpenAIJSON<T>(
   schemaName: string,
   schema: Record<string, unknown>,
   input: unknown[],
-  maxOutputTokens: number = 1600
+  options: OpenAIJSONOptions = {}
 ): Promise<T> {
   const apiKey = requireConfig('OPENAI_API_KEY', config.openai.apiKey)
 
@@ -107,9 +113,9 @@ async function callOpenAIJSON<T>(
     },
     body: JSON.stringify({
       model: config.openai.model,
-      instructions: 'Return JSON that exactly matches the supplied schema.',
+      instructions: options.instructions || DEFAULT_JSON_INSTRUCTIONS,
       input,
-      max_output_tokens: maxOutputTokens,
+      max_output_tokens: options.maxOutputTokens || 1600,
       text: {
         format: {
           type: 'json_schema',

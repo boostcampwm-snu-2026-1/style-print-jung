@@ -29,7 +29,7 @@ export async function extractColorsFromBase64(
 }
 
 function dataUrlToBuffer(dataUrl: string): Buffer {
-  const match = dataUrl.match(/^data:image\/[a-z]+;base64,(.+)$/i)
+  const match = dataUrl.match(/^data:image\/[^;]+;base64,(.+)$/i)
   return Buffer.from(match?.[1] ?? dataUrl, 'base64')
 }
 

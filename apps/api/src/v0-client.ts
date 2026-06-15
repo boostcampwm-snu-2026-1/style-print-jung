@@ -1,4 +1,6 @@
 import { config, requireConfig } from './config'
+import { INTENT_EXPORT_SYSTEM_PROMPT } from './prompts/intent-export'
+import type { GeneratedCodeFile } from '@style-print-jung/shared'
 
 interface V0Message {
   role: 'system' | 'user' | 'assistant'
@@ -31,12 +33,19 @@ interface V0GeneratedFile {
   lang?: string
 }
 
+export interface GeneratedCodeOutput {
+  code: string
+  files?: GeneratedCodeFile[]
+  entryFile?: string
+}
+
+const V0_REQUEST_TIMEOUT_MS = 300_000
+
 export async function generateUICode(
   prompt: string,
   _mode: 'single' | 'staged' = 'single'
-): Promise<string> {
-  const system =
-    'You are an expert React and Tailwind CSS developer. Generate clean, production-ready code.'
+): Promise<GeneratedCodeOutput> {
+  const system = INTENT_EXPORT_SYSTEM_PROMPT
   const messages: V0Message[] = [
     {
       role: 'system',
@@ -52,6 +61,10 @@ export async function generateUICode(
     ? await callV0ModelAPI(messages)
     : await callV0PlatformAPI(system, prompt)
 
+  return response
+}
+
+function extractCodeBlock(response: string): string {
   const codeMatch = response.match(/```(?:jsx|tsx|javascript|react)?\n?([\s\S]*?)```/)
   if (codeMatch) {
     return codeMatch[1].trim()
@@ -60,7 +73,7 @@ export async function generateUICode(
   return response
 }
 
-async function callV0ModelAPI(messages: V0Message[]): Promise<string> {
+async function callV0ModelAPI(messages: V0Message[]): Promise<GeneratedCodeOutput> {
   const apiKey = requireConfig('V0_API_KEY', config.v0.apiKey)
 
   const response = await fetch(config.v0.apiUrl, {
@@ -73,6 +86,7 @@ async function callV0ModelAPI(messages: V0Message[]): Promise<string> {
       model: config.v0.model,
       messages,
     }),
+    signal: AbortSignal.timeout(V0_REQUEST_TIMEOUT_MS),
   })
 
   if (!response.ok) {
@@ -86,10 +100,10 @@ async function callV0ModelAPI(messages: V0Message[]): Promise<string> {
     throw new Error('v0 response did not include message content')
   }
 
-  return content
+  return { code: extractCodeBlock(content) }
 }
 
-async function callV0PlatformAPI(system: string, message: string): Promise<string> {
+async function callV0PlatformAPI(system: string, message: string): Promise<GeneratedCodeOutput> {
   const apiKey = requireConfig('V0_API_KEY', config.v0.apiKey)
 
   const response = await fetch(config.v0.apiUrl, {
@@ -108,6 +122,7 @@ async function callV0PlatformAPI(system: string, message: string): Promise<strin
         thinking: false,
       },
     }),
+    signal: AbortSignal.timeout(V0_REQUEST_TIMEOUT_MS),
   })
 
   if (!response.ok) {
@@ -117,13 +132,14 @@ async function callV0PlatformAPI(system: string, message: string): Promise<strin
 
   const data: V0ChatResponse = await response.json()
   const generatedFiles = data.latestVersion?.files || []
-  const preferredFile =
-    generatedFiles.find((file) => file.name?.match(/\.(tsx|jsx)$/)) ||
-    generatedFiles.find((file) => file.lang?.match(/tsx|jsx|javascript|typescript/i)) ||
-    generatedFiles.find((file) => file.content)
+  const preferredFile = selectGeneratedUIFile(generatedFiles)
 
   if (preferredFile?.content) {
-    return preferredFile.content
+    return {
+      code: preferredFile.content,
+      files: toGeneratedCodeFiles(generatedFiles),
+      entryFile: normalizeGeneratedFilePath(preferredFile.name) || undefined,
+    }
   }
 
   const assistantMessage = data.messages
@@ -132,10 +148,91 @@ async function callV0PlatformAPI(system: string, message: string): Promise<strin
     .find((entry) => entry.role === 'assistant' && entry.content)
 
   if (assistantMessage?.content) {
-    return assistantMessage.content
+    return { code: extractCodeBlock(assistantMessage.content) }
   }
 
   throw new Error('v0 response did not include generated code content')
+}
+
+function toGeneratedCodeFiles(files: V0GeneratedFile[]): GeneratedCodeFile[] {
+  return files.flatMap((file) => {
+    const path = normalizeGeneratedFilePath(file.name)
+    if (!path || !file.content || !isPreviewFile(file)) {
+      return []
+    }
+
+    return [{ path, code: file.content }]
+  })
+}
+
+function normalizeGeneratedFilePath(name?: string): string | null {
+  const normalized = name?.trim().replace(/\\/g, '/').replace(/^\/+/, '')
+
+  if (!normalized) {
+    return null
+  }
+
+  return `/${normalized}`
+}
+
+function isPreviewFile(file: V0GeneratedFile): boolean {
+  const name = file.name || ''
+  return (
+    /\.(tsx|jsx|ts|js|css)$/.test(name) ||
+    /tsx|jsx|javascript|typescript|css/i.test(file.lang || '')
+  )
+}
+
+function selectGeneratedUIFile(files: V0GeneratedFile[]): V0GeneratedFile | undefined {
+  const candidates = files.filter(
+    (file) => file.content && isCodeFile(file) && !isGeneratedShellFile(file)
+  )
+
+  return candidates.sort((a, b) => scoreGeneratedFile(b) - scoreGeneratedFile(a))[0]
+}
+
+function isCodeFile(file: V0GeneratedFile): boolean {
+  const name = file.name || ''
+  return /\.(tsx|jsx|ts|js)$/.test(name) || /tsx|jsx|javascript|typescript/i.test(file.lang || '')
+}
+
+function scoreGeneratedFile(file: V0GeneratedFile): number {
+  const name = (file.name || '').toLowerCase()
+  const content = file.content || ''
+  let score = 0
+
+  if (/\/?components?\//.test(name)) score += 100
+  if (/\/?app\/page\.(tsx|jsx)$/.test(name) || /(^|\/)page\.(tsx|jsx)$/.test(name)) score += 20
+  if (/export\s+default\s+function/.test(content)) score += 30
+  if (/className=/.test(content)) score += 20
+  if (usesProjectLocalImport(content)) score -= 80
+  if (/\.(tsx|jsx)$/.test(name)) score += 10
+
+  return score
+}
+
+function isGeneratedShellFile(file: V0GeneratedFile): boolean {
+  const name = (file.name || '').toLowerCase()
+  const content = file.content || ''
+  return (
+    /(^|\/)layout\.(tsx|jsx)$/.test(name) ||
+    /(^|\/)(globals|global)\.css$/.test(name) ||
+    /(^|\/)(next\.config|package|tsconfig)/.test(name) ||
+    /metadata|RootLayout|@vercel\/analytics/.test(content) ||
+    isThinPageWrapper(name, content)
+  )
+}
+
+function isThinPageWrapper(name: string, content: string): boolean {
+  return (
+    /(^|\/)page\.(tsx|jsx)$/.test(name) &&
+    usesProjectLocalImport(content) &&
+    !/className=/.test(content)
+  )
+}
+
+function usesProjectLocalImport(content: string): boolean {
+  return /from\s+['"](?:@\/|\.\.?\/)/.test(content)
 }
 
 function getPlatformModelId(model: string): string {
