@@ -40,6 +40,8 @@
 - `package-lock.json`
   - Locks installed test dependency versions.
 - `apps/web/vite.config.ts`
+  - Configures Vite for web dev/build.
+- `apps/web/vitest.config.ts`
   - Configures Vitest with `jsdom` and `setupFiles`.
 - `apps/web/src/test/setup-tests.ts`
   - Registers `@testing-library/jest-dom/vitest` matchers.
