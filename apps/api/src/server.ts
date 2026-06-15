@@ -13,6 +13,7 @@ import {
   saveReference,
   deleteReference,
   saveFacetPack,
+  getFacetPacks,
   getFacetPackByRefId,
   saveIntentSpec,
   getIntentSpec,
@@ -54,6 +55,8 @@ import type {
   PreviewBuildResponse,
   ProvenanceBadge,
   ReferenceAsset,
+  RecommendRecipesResponse,
+  Recipe,
   SpacingFacetToken,
   UploadResponse,
 } from '@style-print-jung/shared'
@@ -83,6 +86,16 @@ type GenerationJob = {
 
 const generationJobs = new Map<string, GenerationJob>()
 const GENERATION_JOB_TTL_MS = 30 * 60 * 1000
+const RECIPE_RECOMMENDATION_LIMIT = 3
+const MAX_RECIPE_CANDIDATES = 200
+
+const recipeFacetFields = [
+  { key: 'colorRefId', facetType: 'color', label: 'Color' },
+  { key: 'typographyRefId', facetType: 'typography', label: 'Typography' },
+  { key: 'layoutRefId', facetType: 'layout', label: 'Layout' },
+  { key: 'spacingRefId', facetType: 'spacing', label: 'Spacing' },
+  { key: 'componentStyleRefId', facetType: 'componentStyle', label: 'Component style' },
+] as const
 
 app.register(multipart, {
   limits: {
@@ -402,6 +415,30 @@ app.post('/api/intents/create', async (request, reply) => {
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error',
     } satisfies CreateIntentResponse)
+  }
+})
+
+app.post('/api/recipes/recommend', async (request, reply) => {
+  try {
+    const { refIds, facetPacks, limit } = (request.body || {}) as {
+      refIds?: string[]
+      facetPacks?: FacetPack[]
+      limit?: number
+    }
+
+    const packs = await resolveRecommendationFacetPacks({ refIds, facetPacks })
+    const recipes = recommendRecipes(packs, limit || RECIPE_RECOMMENDATION_LIMIT)
+
+    return reply.send({
+      success: true,
+      recipes,
+    } satisfies RecommendRecipesResponse)
+  } catch (error) {
+    request.log.error(error)
+    return reply.status(500).send({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    } satisfies RecommendRecipesResponse)
   }
 })
 
@@ -921,11 +958,22 @@ async function buildIntentFromChosen(chosen: IntentSpec['chosen']): Promise<{
   normalized: IntentSpec['normalized']
   provenance: IntentSpec['provenance']
 }> {
+  const packs = await getFacetPacks()
+  return buildIntentFromChosenWithPacks(chosen, packs)
+}
+
+function buildIntentFromChosenWithPacks(
+  chosen: IntentSpec['chosen'],
+  packs: FacetPack[]
+): {
+  normalized: IntentSpec['normalized']
+  provenance: IntentSpec['provenance']
+} {
   const normalized: IntentSpec['normalized'] = {}
   const provenance: IntentSpec['provenance'] = {}
 
   if (chosen.colorRefId) {
-    const pack = await getFacetPackByRefId(chosen.colorRefId)
+    const pack = packs.find((facetPack) => facetPack.refId === chosen.colorRefId)
     if (pack) {
       const colorTokens = pack.tokens.filter((t) => t.facetType === 'color')
       const palette: Record<ColorRole, string> = {} as Record<ColorRole, string>
@@ -940,7 +988,7 @@ async function buildIntentFromChosen(chosen: IntentSpec['chosen']): Promise<{
   }
 
   if (chosen.typographyRefId) {
-    const pack = await getFacetPackByRefId(chosen.typographyRefId)
+    const pack = packs.find((facetPack) => facetPack.refId === chosen.typographyRefId)
     const typoToken = pack?.tokens.find((t) => t.facetType === 'typography')
     if (typoToken?.facetType === 'typography') {
       normalized.typography = typoToken.value
@@ -949,7 +997,7 @@ async function buildIntentFromChosen(chosen: IntentSpec['chosen']): Promise<{
   }
 
   if (chosen.layoutRefId) {
-    const pack = await getFacetPackByRefId(chosen.layoutRefId)
+    const pack = packs.find((facetPack) => facetPack.refId === chosen.layoutRefId)
     const layoutToken = pack?.tokens.find((t) => t.facetType === 'layout')
     if (layoutToken?.facetType === 'layout') {
       normalized.layout = layoutToken.value
@@ -958,7 +1006,7 @@ async function buildIntentFromChosen(chosen: IntentSpec['chosen']): Promise<{
   }
 
   if (chosen.spacingRefId) {
-    const pack = await getFacetPackByRefId(chosen.spacingRefId)
+    const pack = packs.find((facetPack) => facetPack.refId === chosen.spacingRefId)
     const spacingToken = pack?.tokens.find((t) => t.facetType === 'spacing')
     if (spacingToken?.facetType === 'spacing') {
       normalized.spacing = spacingToken.value
@@ -967,7 +1015,7 @@ async function buildIntentFromChosen(chosen: IntentSpec['chosen']): Promise<{
   }
 
   if (chosen.componentStyleRefId) {
-    const pack = await getFacetPackByRefId(chosen.componentStyleRefId)
+    const pack = packs.find((facetPack) => facetPack.refId === chosen.componentStyleRefId)
     const styleToken = pack?.tokens.find((t) => t.facetType === 'componentStyle')
     if (styleToken?.facetType === 'componentStyle') {
       normalized.componentStyle = styleToken.value
@@ -976,6 +1024,210 @@ async function buildIntentFromChosen(chosen: IntentSpec['chosen']): Promise<{
   }
 
   return { normalized, provenance }
+}
+
+async function resolveRecommendationFacetPacks(input: {
+  refIds?: string[]
+  facetPacks?: FacetPack[]
+}): Promise<FacetPack[]> {
+  const sourcePacks =
+    input.facetPacks && input.facetPacks.length > 0
+      ? input.facetPacks
+      : await getFacetPacks()
+  const requestedRefIds = new Set((input.refIds || []).filter(Boolean))
+  const seen = new Set<string>()
+
+  return sourcePacks.filter((pack) => {
+    if (requestedRefIds.size > 0 && !requestedRefIds.has(pack.refId)) {
+      return false
+    }
+    if (seen.has(pack.refId)) {
+      return false
+    }
+
+    seen.add(pack.refId)
+    return true
+  })
+}
+
+function recommendRecipes(packs: FacetPack[], limit: number): Recipe[] {
+  const candidatesByFacet = getRecipeCandidateRefs(packs)
+  const chosenCandidates = generateRecipeChosenCandidates(candidatesByFacet)
+  const resultLimit = Math.max(1, Math.min(limit, RECIPE_RECOMMENDATION_LIMIT))
+
+  return chosenCandidates
+    .map((chosen, index) => {
+      const { normalized, provenance } = buildIntentFromChosenWithPacks(chosen, packs)
+      const evaluated = evaluateIntentSpec({
+        id: `recipe-candidate-${index}`,
+        chosen,
+        normalized,
+        provenance,
+        conflicts: [],
+        repairs: [],
+        history: [],
+        createdAt: Date.now(),
+        targetExport: MVP_EXPORT_TARGET,
+      })
+
+      return {
+        chosen,
+        score: evaluated.coherenceScore,
+        sourceCount: countChosenSources(chosen),
+        order: index,
+      }
+    })
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score
+      if (a.sourceCount !== b.sourceCount) return a.sourceCount - b.sourceCount
+      return a.order - b.order
+    })
+    .slice(0, resultLimit)
+    .map((candidate, index) => ({
+      id: `recipe-${index + 1}`,
+      name:
+        candidate.sourceCount === 1
+          ? index === 0
+            ? 'Unified Style'
+            : `Unified Style ${index + 1}`
+          : `Coherence Mix ${index + 1}`,
+      chosen: candidate.chosen,
+      coherenceScore: candidate.score,
+      description: describeRecommendedRecipe(candidate.chosen),
+    }))
+}
+
+function getRecipeCandidateRefs(
+  packs: FacetPack[]
+): Record<(typeof recipeFacetFields)[number]['key'], string[]> {
+  return recipeFacetFields.reduce(
+    (acc, field) => {
+      acc[field.key] = packs
+        .filter((pack) =>
+          pack.tokens.some((token) => token.facetType === field.facetType)
+        )
+        .map((pack) => pack.refId)
+      return acc
+    },
+    {} as Record<(typeof recipeFacetFields)[number]['key'], string[]>
+  )
+}
+
+function generateRecipeChosenCandidates(
+  candidatesByFacet: Record<(typeof recipeFacetFields)[number]['key'], string[]>
+): IntentSpec['chosen'][] {
+  const activeFields = recipeFacetFields.filter(
+    (field) => candidatesByFacet[field.key].length > 0
+  )
+
+  if (activeFields.length === 0) {
+    return []
+  }
+
+  const totalCombinations = activeFields.reduce(
+    (total, field) => total * candidatesByFacet[field.key].length,
+    1
+  )
+
+  if (totalCombinations <= MAX_RECIPE_CANDIDATES) {
+    return generateAllRecipeChosenCandidates(activeFields, candidatesByFacet)
+  }
+
+  return generateLimitedRecipeChosenCandidates(activeFields, candidatesByFacet)
+}
+
+function generateAllRecipeChosenCandidates(
+  activeFields: typeof recipeFacetFields[number][],
+  candidatesByFacet: Record<(typeof recipeFacetFields)[number]['key'], string[]>
+): IntentSpec['chosen'][] {
+  const candidates: IntentSpec['chosen'][] = []
+
+  const visit = (fieldIndex: number, chosen: IntentSpec['chosen']) => {
+    if (fieldIndex === activeFields.length) {
+      candidates.push({ ...chosen })
+      return
+    }
+
+    const field = activeFields[fieldIndex]
+    candidatesByFacet[field.key].forEach((refId) => {
+      visit(fieldIndex + 1, { ...chosen, [field.key]: refId })
+    })
+  }
+
+  visit(0, {})
+  return candidates
+}
+
+function generateLimitedRecipeChosenCandidates(
+  activeFields: typeof recipeFacetFields[number][],
+  candidatesByFacet: Record<(typeof recipeFacetFields)[number]['key'], string[]>
+): IntentSpec['chosen'][] {
+  const candidates: IntentSpec['chosen'][] = []
+  const seen = new Set<string>()
+  const refOrder = Array.from(
+    new Set(activeFields.flatMap((field) => candidatesByFacet[field.key]))
+  )
+
+  const push = (chosen: IntentSpec['chosen']) => {
+    if (candidates.length >= MAX_RECIPE_CANDIDATES) return
+
+    const key = JSON.stringify(
+      recipeFacetFields.map((field) => [field.key, chosen[field.key] || null])
+    )
+    if (!seen.has(key)) {
+      seen.add(key)
+      candidates.push(chosen)
+    }
+  }
+
+  refOrder.forEach((refId) => {
+    push(buildPreferredRecipeChosen(activeFields, candidatesByFacet, refId))
+  })
+
+  const base = buildPreferredRecipeChosen(
+    activeFields,
+    candidatesByFacet,
+    refOrder[0]
+  )
+  push(base)
+
+  activeFields.forEach((field) => {
+    candidatesByFacet[field.key].forEach((refId) => {
+      push({ ...base, [field.key]: refId })
+    })
+  })
+
+  return candidates
+}
+
+function buildPreferredRecipeChosen(
+  activeFields: typeof recipeFacetFields[number][],
+  candidatesByFacet: Record<(typeof recipeFacetFields)[number]['key'], string[]>,
+  preferredRefId: string | undefined
+): IntentSpec['chosen'] {
+  return activeFields.reduce<IntentSpec['chosen']>((chosen, field) => {
+    const refs = candidatesByFacet[field.key]
+    return {
+      ...chosen,
+      [field.key]:
+        preferredRefId && refs.includes(preferredRefId)
+          ? preferredRefId
+          : refs[0],
+    }
+  }, {})
+}
+
+function countChosenSources(chosen: IntentSpec['chosen']): number {
+  return new Set(Object.values(chosen).filter(Boolean)).size
+}
+
+function describeRecommendedRecipe(chosen: IntentSpec['chosen']): string {
+  const sourceCount = countChosenSources(chosen)
+  const facetCount = Object.values(chosen).filter(Boolean).length
+  const sourceLabel = sourceCount === 1 ? 'source' : 'sources'
+  const facetLabel = facetCount === 1 ? 'facet' : 'facets'
+
+  return `${facetCount} ${facetLabel} from ${sourceCount} reference ${sourceLabel}, ranked by coherence`
 }
 
 function calculateDiffs(

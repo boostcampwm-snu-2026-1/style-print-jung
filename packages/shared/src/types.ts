@@ -350,6 +350,18 @@ export type ApplyRepairResponse = {
   error?: string
 }
 
+export type RecommendRecipesRequest = {
+  refIds?: string[]
+  facetPacks?: FacetPack[]
+  limit?: number
+}
+
+export type RecommendRecipesResponse = {
+  success: boolean
+  recipes?: Recipe[]
+  error?: string
+}
+
 export type GenerateRequest = {
   intentSpecId: string
   stepMode: GenerationMode
