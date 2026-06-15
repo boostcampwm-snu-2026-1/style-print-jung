@@ -97,12 +97,15 @@ cp .env.local.example .env.local
 OPENAI_API_KEY=sk-...
 OPENAI_MODEL=gpt-4.1-mini
 V0_API_KEY=...
-V0_MODEL=v0-1.5-md
+V0_MODEL=v0-mini
 API_PORT=4000
 WEB_ORIGIN=http://localhost:5173
+VITE_API_BASE_URL=
 ```
 
 `OPENAI_API_KEY`와 `V0_API_KEY`는 필수입니다. 누락되거나 API 호출이 실패하면 임의 데이터로 진행하지 않고 해당 API 요청이 실패합니다.
+
+`WEB_ORIGIN`은 쉼표로 여러 frontend origin을 지정할 수 있습니다. 예를 들어 Vercel production URL과 preview URL을 함께 허용해야 하면 `https://style-print-jung.vercel.app,https://style-print-jung-git-dev.vercel.app`처럼 설정합니다.
 
 ## 주요 흐름
 
@@ -135,10 +138,25 @@ WEB_ORIGIN=http://localhost:5173
 
 ```bash
 npm run typecheck
+npm run test
 npm run build
 ```
 
 `npm run build`는 backend/frontend 타입체크 후 Vite production build를 수행합니다.
+
+로컬 또는 배포 환경 smoke check는 아래 명령으로 확인합니다.
+
+```bash
+npm run smoke:deploy
+```
+
+배포 URL을 확인할 때는 환경 변수로 대상 URL을 넘깁니다.
+
+```bash
+SMOKE_API_BASE_URL=https://style-print-jung-api.up.railway.app \
+SMOKE_WEB_BASE_URL=https://style-print-jung.vercel.app \
+npm run smoke:deploy
+```
 
 ## 현재 한계
 

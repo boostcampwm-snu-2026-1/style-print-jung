@@ -350,6 +350,18 @@ export type ApplyRepairResponse = {
   error?: string
 }
 
+export type RecommendRecipesRequest = {
+  refIds?: string[]
+  facetPacks?: FacetPack[]
+  limit?: number
+}
+
+export type RecommendRecipesResponse = {
+  success: boolean
+  recipes?: Recipe[]
+  error?: string
+}
+
 export type GenerateRequest = {
   intentSpecId: string
   stepMode: GenerationMode
@@ -357,8 +369,12 @@ export type GenerateRequest = {
   generationBrief?: GenerationBrief
 }
 
+export type GenerationJobStatus = 'pending' | 'running' | 'succeeded' | 'failed'
+
 export type GenerateResponse = {
   success: boolean
+  generationJobId?: string
+  generationStatus?: GenerationJobStatus
   generatedCode?: GeneratedCode
   intentSpec?: IntentSpec
   error?: string
