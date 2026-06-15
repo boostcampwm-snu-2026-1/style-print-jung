@@ -66,7 +66,7 @@ const MVP_EXPORT_TARGET: IntentSpec['targetExport'] = {
   description: 'MVP export target; the IntentSpec remains framework-neutral.',
 }
 
-const app = Fastify({
+export const app = Fastify({
   logger: { level: process.env.LOG_LEVEL || 'error' },
 })
 
@@ -694,7 +694,9 @@ async function start() {
   }
 }
 
-void start()
+if (process.env.NODE_ENV !== 'test') {
+  void start()
+}
 
 async function ensureUploadDir() {
   await fs.mkdir(config.upload.dir, { recursive: true })
