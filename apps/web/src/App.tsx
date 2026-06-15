@@ -53,6 +53,7 @@ import type {
   Recipe,
   GenerateResponse,
   AuditResponse,
+  RecommendRecipesResponse,
 } from '@/lib/types'
 
 // Code-split the generated preview so the upload/recipe flow stays light.
@@ -102,6 +103,8 @@ export default function App() {
   // Recipe state
   const [recipes, setRecipes] = useState<Recipe[]>([])
   const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null)
+  const [recommendingRecipes, setRecommendingRecipes] = useState(false)
+  const [recipeError, setRecipeError] = useState<string | null>(null)
   const [manualChosen, setManualChosen] = useState<IntentSpec['chosen']>({})
   const [intentSpec, setIntentSpec] = useState<IntentSpec | null>(null)
 
@@ -175,6 +178,7 @@ export default function App() {
 
     setExtracting(true)
     setExtractionProgress(0)
+    setRecipeError(null)
 
     const newPacks: FacetPack[] = []
     for (let i = 0; i < references.length; i++) {
@@ -203,87 +207,47 @@ export default function App() {
       setExtractionProgress(((i + 1) / references.length) * 100)
     }
 
-    setFacetPacks((prev) => [...prev, ...newPacks])
+    const nextPacks = [...facetPacks, ...newPacks]
+    setFacetPacks(nextPacks)
     setExtracting(false)
 
-    // Generate recipes after extraction
-    if (newPacks.length > 0 || facetPacks.length > 0) {
-      generateRecipes([...facetPacks, ...newPacks])
+    if (nextPacks.length > 0) {
+      await loadRecommendedRecipes(nextPacks)
     }
   }
 
-  const generateRecipes = (packs: FacetPack[]) => {
-    // Simple recipe generation: create 3 combinations
-    if (packs.length < 1) return
-
-    const newRecipes: Recipe[] = []
-
-    // Recipe 1: Use first reference for all facets
-    if (packs[0]) {
-      newRecipes.push({
-        id: 'recipe-1',
-        name: 'Unified Style',
-        chosen: {
-          colorRefId: packs[0].refId,
-          typographyRefId: packs[0].refId,
-          layoutRefId: packs[0].refId,
-          spacingRefId: packs[0].refId,
-          componentStyleRefId: packs[0].refId,
-        },
-        coherenceScore: 95,
-        description: 'All facets from the same reference for maximum consistency',
-      })
+  const loadRecommendedRecipes = async (packs: FacetPack[]) => {
+    if (packs.length < 1) {
+      setRecipes([])
+      return
     }
 
-    // Recipe 2: Mix if multiple references
-    if (packs.length >= 2) {
-      newRecipes.push({
-        id: 'recipe-2',
-        name: 'Color Accent Mix',
-        chosen: {
-          colorRefId: packs[1].refId,
-          typographyRefId: packs[0].refId,
-          layoutRefId: packs[0].refId,
-          spacingRefId: packs[0].refId,
-          componentStyleRefId: packs[1].refId,
-        },
-        coherenceScore: 82,
-        description: 'Typography and layout from Ref 1, colors and style from Ref 2',
-      })
-    }
+    setRecommendingRecipes(true)
+    setRecipeError(null)
+    setRecipes([])
 
-    // Recipe 3: Different mix
-    if (packs.length >= 3) {
-      newRecipes.push({
-        id: 'recipe-3',
-        name: 'Layout Focus',
-        chosen: {
-          colorRefId: packs[0].refId,
-          typographyRefId: packs[1].refId,
-          layoutRefId: packs[2].refId,
-          spacingRefId: packs[2].refId,
-          componentStyleRefId: packs[0].refId,
-        },
-        coherenceScore: 75,
-        description: 'Layout from Ref 3, typography from Ref 2, colors from Ref 1',
+    try {
+      const response = await fetch(apiUrl('/api/recipes/recommend'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ facetPacks: packs }),
       })
-    } else if (packs.length >= 2) {
-      newRecipes.push({
-        id: 'recipe-3',
-        name: 'Typography Focus',
-        chosen: {
-          colorRefId: packs[0].refId,
-          typographyRefId: packs[1].refId,
-          layoutRefId: packs[1].refId,
-          spacingRefId: packs[0].refId,
-          componentStyleRefId: packs[0].refId,
-        },
-        coherenceScore: 78,
-        description: 'Typography and layout from Ref 2, everything else from Ref 1',
-      })
-    }
+      const data = await readApiResponse<RecommendRecipesResponse>(
+        response,
+        'Recommend recipes failed'
+      )
 
-    setRecipes(newRecipes)
+      if (data.success && data.recipes) {
+        setRecipes(data.recipes)
+      } else {
+        setRecipeError('추천 생성 실패')
+      }
+    } catch (err) {
+      console.error('Failed to recommend recipes:', err)
+      setRecipeError('추천 생성 실패')
+    } finally {
+      setRecommendingRecipes(false)
+    }
   }
 
   const selectRecipe = async (recipe: Recipe) => {
@@ -755,13 +719,25 @@ export default function App() {
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <RecipeCards
-                    recipes={recipes}
-                    selectedRecipe={selectedRecipe}
-                    onSelectRecipe={selectRecipe}
-                    references={references}
-                    facetPacks={facetPacks}
-                  />
+                  {recommendingRecipes ? (
+                    <div className="flex items-center justify-center gap-2 py-8 text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      <span>Ranking recipes...</span>
+                    </div>
+                  ) : recipeError ? (
+                    <div className="flex items-center justify-center gap-2 py-8 text-destructive">
+                      <AlertTriangle className="h-4 w-4" />
+                      <span>{recipeError}</span>
+                    </div>
+                  ) : (
+                    <RecipeCards
+                      recipes={recipes}
+                      selectedRecipe={selectedRecipe}
+                      onSelectRecipe={selectRecipe}
+                      references={references}
+                      facetPacks={facetPacks}
+                    />
+                  )}
                 </CardContent>
               </Card>
 
