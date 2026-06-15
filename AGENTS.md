@@ -24,6 +24,7 @@
 
 - Before coding, identify the target issue or task and state the success criteria.
 - Keep changes scoped to the task; avoid unrelated refactors.
+- For long-running or multi-step tasks, make meaningful intermediate commits at important verified checkpoints. Keep commit boundaries logical, run `git status` before each commit, and never include unrelated worktree changes unless explicitly asked.
 - If a task changes API contracts, update `packages/shared/src/types.ts` first.
 - After implementation, run `npm run typecheck`; run `npm run build` for broader frontend/backend changes.
 - If documentation or workflow changes are made, keep README and wiki drafts consistent.

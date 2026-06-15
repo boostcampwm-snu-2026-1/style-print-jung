@@ -6,6 +6,11 @@ import { ConflictList } from '@/components/conflict-list'
 import { CodeViewer } from '@/components/code-viewer'
 import { AuditDiffTable } from '@/components/audit-diff-table'
 import { ProvenanceBadges } from '@/components/provenance-badges'
+import {
+  ManualFacetSelector,
+  manualFacetFields,
+  type ManualFacetKey,
+} from '@/components/manual-facet-selector'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -22,7 +27,6 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { apiUrl } from '@/lib/api'
-import { getReferenceImageSrc } from '@/lib/references'
 import {
   Upload,
   Palette,
@@ -49,6 +53,7 @@ import type {
   Recipe,
   GenerateResponse,
   AuditResponse,
+  RecommendRecipesResponse,
 } from '@/lib/types'
 
 // Code-split the generated preview so the upload/recipe flow stays light.
@@ -57,19 +62,6 @@ const PreviewPane = lazy(() =>
 )
 
 type Step = 'upload' | 'recipe' | 'generate'
-
-const manualFacetFields = [
-  { key: 'colorRefId', label: 'Color', facetType: 'color' },
-  { key: 'typographyRefId', label: 'Typography', facetType: 'typography' },
-  { key: 'layoutRefId', label: 'Layout', facetType: 'layout' },
-  { key: 'spacingRefId', label: 'Spacing', facetType: 'spacing' },
-  { key: 'componentStyleRefId', label: 'Component Style', facetType: 'componentStyle' },
-] as const
-
-type ManualFacetKey = (typeof manualFacetFields)[number]['key']
-type ManualFacetType = (typeof manualFacetFields)[number]['facetType']
-type FacetToken = FacetPack['tokens'][number]
-type FacetTokenOf<T extends ManualFacetType> = Extract<FacetToken, { facetType: T }>
 
 const screenPlanOptions: { value: ScreenPlanType; label: string }[] = [
   { value: 'home', label: 'Home' },
@@ -111,6 +103,8 @@ export default function App() {
   // Recipe state
   const [recipes, setRecipes] = useState<Recipe[]>([])
   const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null)
+  const [recommendingRecipes, setRecommendingRecipes] = useState(false)
+  const [recipeError, setRecipeError] = useState<string | null>(null)
   const [manualChosen, setManualChosen] = useState<IntentSpec['chosen']>({})
   const [intentSpec, setIntentSpec] = useState<IntentSpec | null>(null)
 
@@ -184,6 +178,7 @@ export default function App() {
 
     setExtracting(true)
     setExtractionProgress(0)
+    setRecipeError(null)
 
     const newPacks: FacetPack[] = []
     for (let i = 0; i < references.length; i++) {
@@ -212,87 +207,47 @@ export default function App() {
       setExtractionProgress(((i + 1) / references.length) * 100)
     }
 
-    setFacetPacks((prev) => [...prev, ...newPacks])
+    const nextPacks = [...facetPacks, ...newPacks]
+    setFacetPacks(nextPacks)
     setExtracting(false)
 
-    // Generate recipes after extraction
-    if (newPacks.length > 0 || facetPacks.length > 0) {
-      generateRecipes([...facetPacks, ...newPacks])
+    if (nextPacks.length > 0) {
+      await loadRecommendedRecipes(nextPacks)
     }
   }
 
-  const generateRecipes = (packs: FacetPack[]) => {
-    // Simple recipe generation: create 3 combinations
-    if (packs.length < 1) return
-
-    const newRecipes: Recipe[] = []
-
-    // Recipe 1: Use first reference for all facets
-    if (packs[0]) {
-      newRecipes.push({
-        id: 'recipe-1',
-        name: 'Unified Style',
-        chosen: {
-          colorRefId: packs[0].refId,
-          typographyRefId: packs[0].refId,
-          layoutRefId: packs[0].refId,
-          spacingRefId: packs[0].refId,
-          componentStyleRefId: packs[0].refId,
-        },
-        coherenceScore: 95,
-        description: 'All facets from the same reference for maximum consistency',
-      })
+  const loadRecommendedRecipes = async (packs: FacetPack[]) => {
+    if (packs.length < 1) {
+      setRecipes([])
+      return
     }
 
-    // Recipe 2: Mix if multiple references
-    if (packs.length >= 2) {
-      newRecipes.push({
-        id: 'recipe-2',
-        name: 'Color Accent Mix',
-        chosen: {
-          colorRefId: packs[1].refId,
-          typographyRefId: packs[0].refId,
-          layoutRefId: packs[0].refId,
-          spacingRefId: packs[0].refId,
-          componentStyleRefId: packs[1].refId,
-        },
-        coherenceScore: 82,
-        description: 'Typography and layout from Ref 1, colors and style from Ref 2',
-      })
-    }
+    setRecommendingRecipes(true)
+    setRecipeError(null)
+    setRecipes([])
 
-    // Recipe 3: Different mix
-    if (packs.length >= 3) {
-      newRecipes.push({
-        id: 'recipe-3',
-        name: 'Layout Focus',
-        chosen: {
-          colorRefId: packs[0].refId,
-          typographyRefId: packs[1].refId,
-          layoutRefId: packs[2].refId,
-          spacingRefId: packs[2].refId,
-          componentStyleRefId: packs[0].refId,
-        },
-        coherenceScore: 75,
-        description: 'Layout from Ref 3, typography from Ref 2, colors from Ref 1',
+    try {
+      const response = await fetch(apiUrl('/api/recipes/recommend'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ facetPacks: packs }),
       })
-    } else if (packs.length >= 2) {
-      newRecipes.push({
-        id: 'recipe-3',
-        name: 'Typography Focus',
-        chosen: {
-          colorRefId: packs[0].refId,
-          typographyRefId: packs[1].refId,
-          layoutRefId: packs[1].refId,
-          spacingRefId: packs[0].refId,
-          componentStyleRefId: packs[0].refId,
-        },
-        coherenceScore: 78,
-        description: 'Typography and layout from Ref 2, everything else from Ref 1',
-      })
-    }
+      const data = await readApiResponse<RecommendRecipesResponse>(
+        response,
+        'Recommend recipes failed'
+      )
 
-    setRecipes(newRecipes)
+      if (data.success && data.recipes) {
+        setRecipes(data.recipes)
+      } else {
+        setRecipeError('추천 생성 실패')
+      }
+    } catch (err) {
+      console.error('Failed to recommend recipes:', err)
+      setRecipeError('추천 생성 실패')
+    } finally {
+      setRecommendingRecipes(false)
+    }
   }
 
   const selectRecipe = async (recipe: Recipe) => {
@@ -492,16 +447,10 @@ export default function App() {
         'Generate UI failed'
       )
       if (data.success && data.generatedCode) {
-        if (data.intentSpec) {
-          setIntentSpec(data.intentSpec)
-          setGenerationChosen(data.intentSpec.chosen)
-          setGenerationBrief(data.intentSpec.generationBrief || generationBrief)
-        }
-        setGeneratedCode(data.generatedCode)
-        setLastGeneratedSignature(nextSignature)
-
-        // Audit the generated code
-        await auditCode(data.generatedCode.code, data.intentSpec?.id || intentSpec.id)
+        await finishGeneratedCode(data, nextSignature)
+      } else if (data.success && data.generationJobId) {
+        const completed = await pollGenerationJob(data.generationJobId)
+        await finishGeneratedCode(completed, nextSignature)
       } else {
         setGenerationError(
           data.error || `Generate UI failed (${response.status})`
@@ -513,6 +462,52 @@ export default function App() {
     } finally {
       setGenerating(false)
     }
+  }
+
+  const finishGeneratedCode = async (
+    data: GenerateResponse,
+    generationSignature: string
+  ) => {
+    if (!data.generatedCode) {
+      setGenerationError('Generate UI failed: no generated code returned')
+      return
+    }
+
+    if (data.intentSpec) {
+      setIntentSpec(data.intentSpec)
+      setGenerationChosen(data.intentSpec.chosen)
+      setGenerationBrief(data.intentSpec.generationBrief || generationBrief)
+    }
+
+    setGeneratedCode(data.generatedCode)
+    setLastGeneratedSignature(generationSignature)
+
+    await auditCode(data.generatedCode.code, data.intentSpec?.id || intentSpec?.id)
+  }
+
+  const pollGenerationJob = async (jobId: string): Promise<GenerateResponse> => {
+    const startedAt = Date.now()
+    const timeoutMs = 180_000
+
+    while (Date.now() - startedAt < timeoutMs) {
+      await wait(2_000)
+
+      const response = await fetch(apiUrl(`/api/generate/jobs/${jobId}`))
+      const data = await readApiResponse<GenerateResponse>(
+        response,
+        'Generate UI status check failed'
+      )
+
+      if (data.generatedCode) {
+        return data
+      }
+
+      if (!data.success || data.generationStatus === 'failed') {
+        throw new Error(data.error || 'Generate UI failed')
+      }
+    }
+
+    throw new Error('Generate UI timed out')
   }
 
   const auditCode = async (code: string, specId = intentSpec?.id) => {
@@ -724,13 +719,25 @@ export default function App() {
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <RecipeCards
-                    recipes={recipes}
-                    selectedRecipe={selectedRecipe}
-                    onSelectRecipe={selectRecipe}
-                    references={references}
-                    facetPacks={facetPacks}
-                  />
+                  {recommendingRecipes ? (
+                    <div className="flex items-center justify-center gap-2 py-8 text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      <span>Ranking recipes...</span>
+                    </div>
+                  ) : recipeError ? (
+                    <div className="flex items-center justify-center gap-2 py-8 text-destructive">
+                      <AlertTriangle className="h-4 w-4" />
+                      <span>{recipeError}</span>
+                    </div>
+                  ) : (
+                    <RecipeCards
+                      recipes={recipes}
+                      selectedRecipe={selectedRecipe}
+                      onSelectRecipe={selectRecipe}
+                      references={references}
+                      facetPacks={facetPacks}
+                    />
+                  )}
                 </CardContent>
               </Card>
 
@@ -1161,265 +1168,6 @@ function ScreenPlanEditor({
   )
 }
 
-function ManualFacetSelector({
-  chosen,
-  facetPacks,
-  references,
-  onChange,
-  onApply,
-}: {
-  chosen: IntentSpec['chosen']
-  facetPacks: FacetPack[]
-  references: ReferenceAsset[]
-  onChange: (key: ManualFacetKey, refId: string) => void
-  onApply?: () => void
-}) {
-  if (facetPacks.length === 0) {
-    return (
-      <div className="text-center py-8 text-muted-foreground">
-        <Palette className="h-8 w-8 mx-auto mb-2 opacity-50" />
-        <p>Extract facets before customizing sources</p>
-      </div>
-    )
-  }
-
-  return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {manualFacetFields.map(({ key, label, facetType }) => {
-          const selectedRefId = chosen[key] || facetPacks[0]?.refId
-          const selectedPack = facetPacks.find((pack) => pack.refId === selectedRefId)
-          const selectedReference = references.find(
-            (reference) => reference.id === selectedRefId
-          )
-
-          return (
-            <div key={key} className="space-y-2 rounded-md border p-3">
-              <Label htmlFor={key}>{label}</Label>
-              <Select
-                value={selectedRefId}
-                onValueChange={(refId) => onChange(key, refId)}
-              >
-                <SelectTrigger id={key}>
-                  <SelectValue placeholder="Select reference" />
-                </SelectTrigger>
-                <SelectContent>
-                  {facetPacks.map((pack) => (
-                    <SelectItem key={pack.refId} value={pack.refId}>
-                      {getReferenceLabel(pack.refId, references)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <FacetSourcePreview
-                facetType={facetType}
-                facetPack={selectedPack}
-                reference={selectedReference}
-              />
-            </div>
-          )
-        })}
-      </div>
-      {onApply && (
-        <Button className="w-full md:w-auto" onClick={onApply}>
-          Apply Custom Mix
-        </Button>
-      )}
-    </div>
-  )
-}
-
-function FacetSourcePreview({
-  facetType,
-  facetPack,
-  reference,
-}: {
-  facetType: ManualFacetType
-  facetPack?: FacetPack
-  reference?: ReferenceAsset
-}) {
-  const referenceImageSrc = getReferenceImageSrc(reference)
-
-  if (!facetPack) {
-    return (
-      <div className="rounded-md bg-muted/50 p-3 text-xs text-muted-foreground">
-        No extracted facets for this reference
-      </div>
-    )
-  }
-
-  return (
-    <div className="rounded-md bg-muted/50 p-3 text-xs">
-      <div className="mb-3 flex items-center gap-2">
-        {referenceImageSrc && (
-          <img
-            src={referenceImageSrc}
-            alt={reference?.filename || 'Reference thumbnail'}
-            className="h-8 w-10 rounded border object-cover"
-          />
-        )}
-        <div className="min-w-0">
-          <p className="truncate font-medium">
-            {reference?.filename || `Ref ${facetPack.refId.slice(0, 6)}`}
-          </p>
-          <p className="text-muted-foreground">
-            {facetPack.summary.moodKeywords.slice(0, 3).join(', ') || 'No mood summary'}
-          </p>
-        </div>
-      </div>
-      <FacetTokenPreview facetType={facetType} facetPack={facetPack} />
-    </div>
-  )
-}
-
-function FacetTokenPreview({
-  facetType,
-  facetPack,
-}: {
-  facetType: ManualFacetType
-  facetPack: FacetPack
-}) {
-  if (facetType === 'color') {
-    const tokens = getFacetTokens(facetPack, 'color')
-
-    if (tokens.length === 0) {
-      return <EmptyFacetPreview label="color" />
-    }
-
-    return (
-      <div className="grid grid-cols-2 gap-2">
-        {tokens.slice(0, 8).map((token) => (
-          <div key={token.id} className="flex min-w-0 items-center gap-2">
-            <div
-              className="h-6 w-6 flex-shrink-0 rounded border"
-              style={{ backgroundColor: token.value.hex }}
-            />
-            <div className="min-w-0">
-              <p className="truncate font-medium">{token.value.role}</p>
-              <p className="text-muted-foreground">{token.value.hex}</p>
-            </div>
-          </div>
-        ))}
-      </div>
-    )
-  }
-
-  if (facetType === 'typography') {
-    const token = getFacetTokens(facetPack, 'typography')[0]
-
-    if (!token) {
-      return <EmptyFacetPreview label="typography" />
-    }
-
-    return (
-      <div className="space-y-2">
-        <div className="flex flex-wrap gap-1">
-          {token.value.fontCandidates.slice(0, 3).map((font) => (
-            <Badge key={font.name} variant="outline" className="text-[10px]">
-              {font.name}
-            </Badge>
-          ))}
-        </div>
-        <div className="grid grid-cols-2 gap-2 text-muted-foreground">
-          <span>H1 {token.value.scale.h1}px</span>
-          <span>H2 {token.value.scale.h2}px</span>
-          <span>Body {token.value.scale.body}px</span>
-          <span>Caption {token.value.scale.caption}px</span>
-        </div>
-      </div>
-    )
-  }
-
-  if (facetType === 'layout') {
-    const token = getFacetTokens(facetPack, 'layout')[0]
-
-    if (!token) {
-      return <EmptyFacetPreview label="layout" />
-    }
-
-    return (
-      <div className="space-y-2">
-        <div className="flex flex-wrap gap-1">
-          <Badge variant="outline" className="text-[10px]">
-            {token.value.pattern}
-          </Badge>
-          <Badge variant="outline" className="text-[10px]">
-            {token.value.density}
-          </Badge>
-          {token.value.columns && (
-            <Badge variant="outline" className="text-[10px]">
-              {token.value.columns} columns
-            </Badge>
-          )}
-        </div>
-        {token.value.notes && (
-          <p className="line-clamp-2 text-muted-foreground">{token.value.notes}</p>
-        )}
-      </div>
-    )
-  }
-
-  if (facetType === 'spacing') {
-    const token = getFacetTokens(facetPack, 'spacing')[0]
-
-    if (!token) {
-      return <EmptyFacetPreview label="spacing" />
-    }
-
-    return (
-      <div className="space-y-2">
-        <div className="flex gap-2 text-muted-foreground">
-          <span>Base {token.value.baseUnit}px</span>
-          <span>{token.value.density}</span>
-        </div>
-        <div className="flex h-9 items-end gap-1">
-          {token.value.scale.slice(0, 8).map((size) => (
-            <div
-              key={size}
-              className="flex w-5 items-end justify-center rounded-sm bg-primary/70 text-[9px] text-primary-foreground"
-              style={{ height: `${Math.max(16, Math.min(size, 36))}px` }}
-              title={`${size}px`}
-            >
-              {size}
-            </div>
-          ))}
-        </div>
-      </div>
-    )
-  }
-
-  const token = getFacetTokens(facetPack, 'componentStyle')[0]
-
-  if (!token) {
-    return <EmptyFacetPreview label="component style" />
-  }
-
-  return (
-    <div className="grid grid-cols-3 gap-2">
-      <div className="rounded-md border bg-background p-2 text-center">
-        <p className="text-muted-foreground">Radius</p>
-        <p className="font-medium">{token.value.radius}</p>
-      </div>
-      <div className="rounded-md border bg-background p-2 text-center shadow-sm">
-        <p className="text-muted-foreground">Shadow</p>
-        <p className="font-medium">{token.value.shadow}</p>
-      </div>
-      <div className="rounded-md border bg-background p-2 text-center">
-        <p className="text-muted-foreground">Border</p>
-        <p className="font-medium">{token.value.border}</p>
-      </div>
-    </div>
-  )
-}
-
-function EmptyFacetPreview({ label }: { label: string }) {
-  return (
-    <p className="text-muted-foreground">
-      No {label} token extracted from this reference
-    </p>
-  )
-}
-
 function resolveGenerationChosen(
   chosen: IntentSpec['chosen'],
   fallback: IntentSpec['chosen']
@@ -1480,22 +1228,10 @@ function getApiErrorMessage(error: unknown, fallbackMessage: string): string {
   return error instanceof Error ? error.message : fallbackMessage
 }
 
-function getFacetTokens<T extends ManualFacetType>(
-  facetPack: FacetPack,
-  facetType: T
-): FacetTokenOf<T>[] {
-  return facetPack.tokens.filter(
-    (token): token is FacetTokenOf<T> => token.facetType === facetType
-  )
-}
-
-function getReferenceLabel(refId: string, references: ReferenceAsset[]) {
-  const ref = references.find((reference) => reference.id === refId)
-  const index = ref
-    ? references.findIndex((reference) => reference.id === ref.id) + 1
-    : null
-
-  return index ? `Ref ${index} - ${ref?.filename}` : `Ref ${refId.slice(0, 6)}`
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms)
+  })
 }
 
 // Step Button Component

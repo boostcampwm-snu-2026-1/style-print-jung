@@ -13,6 +13,7 @@ import {
   saveReference,
   deleteReference,
   saveFacetPack,
+  getFacetPacks,
   getFacetPackByRefId,
   saveIntentSpec,
   getIntentSpec,
@@ -22,9 +23,8 @@ import {
 import {
   extractColorsFromBase64,
   assignColorRoles,
-  calculateContrastRatio,
-  adjustForContrast,
 } from './color-extractor'
+import { evaluateIntentSpec } from './intent-evaluator'
 import { generateUICode } from './v0-client'
 import {
   capturePreviewScreenshot,
@@ -42,12 +42,12 @@ import type {
   ApplyRepairResponse,
   ColorRole,
   ComponentStyleFacetToken,
-  ConflictCard,
   CreateIntentResponse,
   EvaluateResponse,
   ExtractResponse,
   FacetDiff,
   FacetPack,
+  GenerationJobStatus,
   GenerateRequest,
   GenerateResponse,
   GeneratedCode,
@@ -55,7 +55,8 @@ import type {
   PreviewBuildResponse,
   ProvenanceBadge,
   ReferenceAsset,
-  RepairPlan,
+  RecommendRecipesResponse,
+  Recipe,
   SpacingFacetToken,
   UploadResponse,
 } from '@style-print-jung/shared'
@@ -66,11 +67,35 @@ const MVP_EXPORT_TARGET: IntentSpec['targetExport'] = {
   description: 'MVP export target; the IntentSpec remains framework-neutral.',
 }
 
-const app = Fastify({
+export const app = Fastify({
   logger: { level: process.env.LOG_LEVEL || 'error' },
 })
 
 const shouldClearRuntimeOnStart = process.env.CLEAR_RUNTIME_ON_START === 'true'
+
+type GenerationJob = {
+  id: string
+  status: GenerationJobStatus
+  intentSpecId: string
+  intentSpec?: IntentSpec
+  generatedCode?: GeneratedCode
+  error?: string
+  createdAt: number
+  updatedAt: number
+}
+
+const generationJobs = new Map<string, GenerationJob>()
+const GENERATION_JOB_TTL_MS = 30 * 60 * 1000
+const RECIPE_RECOMMENDATION_LIMIT = 3
+const MAX_RECIPE_CANDIDATES = 200
+
+const recipeFacetFields = [
+  { key: 'colorRefId', facetType: 'color', label: 'Color' },
+  { key: 'typographyRefId', facetType: 'typography', label: 'Typography' },
+  { key: 'layoutRefId', facetType: 'layout', label: 'Layout' },
+  { key: 'spacingRefId', facetType: 'spacing', label: 'Spacing' },
+  { key: 'componentStyleRefId', facetType: 'componentStyle', label: 'Component style' },
+] as const
 
 app.register(multipart, {
   limits: {
@@ -79,7 +104,12 @@ app.register(multipart, {
 })
 
 app.addHook('onRequest', async (_request, reply) => {
-  reply.header('Access-Control-Allow-Origin', config.api.webOrigin)
+  const origin = getHeader(_request.headers, 'origin')?.replace(/\/$/, '')
+  const allowedOrigin =
+    origin && config.api.webOrigins.includes(origin) ? origin : config.api.webOrigin
+
+  reply.header('Access-Control-Allow-Origin', allowedOrigin)
+  reply.header('Vary', 'Origin')
   reply.header('Access-Control-Allow-Methods', 'GET,POST,DELETE,OPTIONS')
   reply.header('Access-Control-Allow-Headers', 'Content-Type,Authorization')
 })
@@ -388,6 +418,30 @@ app.post('/api/intents/create', async (request, reply) => {
   }
 })
 
+app.post('/api/recipes/recommend', async (request, reply) => {
+  try {
+    const { refIds, facetPacks, limit } = (request.body || {}) as {
+      refIds?: string[]
+      facetPacks?: FacetPack[]
+      limit?: number
+    }
+
+    const packs = await resolveRecommendationFacetPacks({ refIds, facetPacks })
+    const recipes = recommendRecipes(packs, limit || RECIPE_RECOMMENDATION_LIMIT)
+
+    return reply.send({
+      success: true,
+      recipes,
+    } satisfies RecommendRecipesResponse)
+  } catch (error) {
+    request.log.error(error)
+    return reply.status(500).send({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    } satisfies RecommendRecipesResponse)
+  }
+})
+
 app.post('/api/intents/evaluate', async (request, reply) => {
   try {
     const { intentSpecId } = request.body as { intentSpecId?: string }
@@ -546,9 +600,80 @@ app.post('/api/generate/v0', async (request, reply) => {
 
     await saveIntentSpec(intentSpec)
 
+    cleanupGenerationJobs()
+
+    const generationJobId = nanoid()
+    const job: GenerationJob = {
+      id: generationJobId,
+      status: 'pending',
+      intentSpecId,
+      intentSpec,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    }
+
+    generationJobs.set(generationJobId, job)
+
+    void runGenerationJob({
+      jobId: generationJobId,
+      intentSpec,
+      stepMode: stepMode || 'single',
+      headers: { ...request.headers },
+    }).catch((error) => {
+      request.log.error(error)
+    })
+
+    return reply.status(202).send({
+      success: true,
+      generationJobId,
+      generationStatus: job.status,
+      intentSpec,
+    } satisfies GenerateResponse)
+  } catch (error) {
+    request.log.error(error)
+    return reply.status(500).send({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    } satisfies GenerateResponse)
+  }
+})
+
+app.get('/api/generate/jobs/:jobId', async (request, reply) => {
+  const { jobId } = request.params as { jobId: string }
+  const job = generationJobs.get(jobId)
+
+  if (!job) {
+    return reply.status(404).send({
+      success: false,
+      error: 'Generation job not found',
+    } satisfies GenerateResponse)
+  }
+
+  return reply.status(job.status === 'failed' ? 500 : 200).send({
+    success: job.status !== 'failed',
+    generationJobId: job.id,
+    generationStatus: job.status,
+    generatedCode: job.generatedCode,
+    intentSpec: job.intentSpec,
+    error: job.error,
+  } satisfies GenerateResponse)
+})
+
+async function runGenerationJob(input: {
+  jobId: string
+  intentSpec: IntentSpec
+  stepMode: GenerateRequest['stepMode']
+  headers: Record<string, string | string[] | undefined>
+}) {
+  const job = generationJobs.get(input.jobId)
+  if (!job) return
+
+  updateGenerationJob(input.jobId, { status: 'running' })
+
+  try {
     const generated = await generateUICode(
-      buildIntentExportPrompt(intentSpec, MVP_EXPORT_TARGET),
-      stepMode || 'single'
+      buildIntentExportPrompt(input.intentSpec, MVP_EXPORT_TARGET),
+      input.stepMode
     )
 
     const generatedCodeId = nanoid()
@@ -562,17 +687,16 @@ app.post('/api/generate/v0', async (request, reply) => {
         files: generated.files,
         entryFile: generated.entryFile,
       })
-      previewUrl = toApiAssetUrl(previewPath, request.headers)
+      previewUrl = toApiAssetUrl(previewPath, input.headers)
     } catch (error) {
-      request.log.error(error)
       screenshotError =
         error instanceof Error ? `Preview unavailable: ${error.message}` : 'Preview unavailable'
     }
 
     const generatedCode: GeneratedCode = {
       id: generatedCodeId,
-      intentSpecId,
-      mode: stepMode || 'single',
+      intentSpecId: input.intentSpec.id,
+      mode: input.stepMode,
       code: generated.code,
       files: generated.files,
       entryFile: generated.entryFile,
@@ -584,20 +708,47 @@ app.post('/api/generate/v0', async (request, reply) => {
     await saveGeneratedCode(generatedCode)
 
     if (previewUrl) {
-      void captureAndSaveScreenshot(generatedCode, previewUrl, request.headers).catch((error) => {
-        request.log.error(error)
+      void captureAndSaveScreenshot(generatedCode, previewUrl, input.headers).catch((error) => {
+        app.log.error(error)
       })
     }
 
-    return reply.send({ success: true, generatedCode, intentSpec } satisfies GenerateResponse)
+    updateGenerationJob(input.jobId, {
+      status: 'succeeded',
+      generatedCode,
+      intentSpec: input.intentSpec,
+    })
   } catch (error) {
-    request.log.error(error)
-    return reply.status(500).send({
-      success: false,
+    updateGenerationJob(input.jobId, {
+      status: 'failed',
       error: error instanceof Error ? error.message : 'Unknown error',
-    } satisfies GenerateResponse)
+    })
   }
-})
+}
+
+function updateGenerationJob(
+  jobId: string,
+  patch: Partial<Omit<GenerationJob, 'id' | 'createdAt'>>
+) {
+  const job = generationJobs.get(jobId)
+  if (!job) return
+
+  generationJobs.set(jobId, {
+    ...job,
+    ...patch,
+    updatedAt: Date.now(),
+  })
+}
+
+function cleanupGenerationJobs() {
+  const now = Date.now()
+
+  for (const [jobId, job] of generationJobs.entries()) {
+    if (now - job.updatedAt > GENERATION_JOB_TTL_MS) {
+      generationJobs.delete(jobId)
+    }
+  }
+}
 
 app.post('/api/preview/build', async (request, reply) => {
   try {
@@ -694,7 +845,9 @@ async function start() {
   }
 }
 
-void start()
+if (process.env.NODE_ENV !== 'test') {
+  void start()
+}
 
 async function ensureUploadDir() {
   await fs.mkdir(config.upload.dir, { recursive: true })
@@ -805,11 +958,22 @@ async function buildIntentFromChosen(chosen: IntentSpec['chosen']): Promise<{
   normalized: IntentSpec['normalized']
   provenance: IntentSpec['provenance']
 }> {
+  const packs = await getFacetPacks()
+  return buildIntentFromChosenWithPacks(chosen, packs)
+}
+
+function buildIntentFromChosenWithPacks(
+  chosen: IntentSpec['chosen'],
+  packs: FacetPack[]
+): {
+  normalized: IntentSpec['normalized']
+  provenance: IntentSpec['provenance']
+} {
   const normalized: IntentSpec['normalized'] = {}
   const provenance: IntentSpec['provenance'] = {}
 
   if (chosen.colorRefId) {
-    const pack = await getFacetPackByRefId(chosen.colorRefId)
+    const pack = packs.find((facetPack) => facetPack.refId === chosen.colorRefId)
     if (pack) {
       const colorTokens = pack.tokens.filter((t) => t.facetType === 'color')
       const palette: Record<ColorRole, string> = {} as Record<ColorRole, string>
@@ -824,7 +988,7 @@ async function buildIntentFromChosen(chosen: IntentSpec['chosen']): Promise<{
   }
 
   if (chosen.typographyRefId) {
-    const pack = await getFacetPackByRefId(chosen.typographyRefId)
+    const pack = packs.find((facetPack) => facetPack.refId === chosen.typographyRefId)
     const typoToken = pack?.tokens.find((t) => t.facetType === 'typography')
     if (typoToken?.facetType === 'typography') {
       normalized.typography = typoToken.value
@@ -833,7 +997,7 @@ async function buildIntentFromChosen(chosen: IntentSpec['chosen']): Promise<{
   }
 
   if (chosen.layoutRefId) {
-    const pack = await getFacetPackByRefId(chosen.layoutRefId)
+    const pack = packs.find((facetPack) => facetPack.refId === chosen.layoutRefId)
     const layoutToken = pack?.tokens.find((t) => t.facetType === 'layout')
     if (layoutToken?.facetType === 'layout') {
       normalized.layout = layoutToken.value
@@ -842,7 +1006,7 @@ async function buildIntentFromChosen(chosen: IntentSpec['chosen']): Promise<{
   }
 
   if (chosen.spacingRefId) {
-    const pack = await getFacetPackByRefId(chosen.spacingRefId)
+    const pack = packs.find((facetPack) => facetPack.refId === chosen.spacingRefId)
     const spacingToken = pack?.tokens.find((t) => t.facetType === 'spacing')
     if (spacingToken?.facetType === 'spacing') {
       normalized.spacing = spacingToken.value
@@ -851,7 +1015,7 @@ async function buildIntentFromChosen(chosen: IntentSpec['chosen']): Promise<{
   }
 
   if (chosen.componentStyleRefId) {
-    const pack = await getFacetPackByRefId(chosen.componentStyleRefId)
+    const pack = packs.find((facetPack) => facetPack.refId === chosen.componentStyleRefId)
     const styleToken = pack?.tokens.find((t) => t.facetType === 'componentStyle')
     if (styleToken?.facetType === 'componentStyle') {
       normalized.componentStyle = styleToken.value
@@ -862,131 +1026,208 @@ async function buildIntentFromChosen(chosen: IntentSpec['chosen']): Promise<{
   return { normalized, provenance }
 }
 
-function evaluateIntentSpec(intentSpec: IntentSpec): {
-  conflicts: ConflictCard[]
-  repairs: RepairPlan[]
-  coherenceScore: number
-} {
-  const conflicts: ConflictCard[] = []
-  const repairs: RepairPlan[] = []
+async function resolveRecommendationFacetPacks(input: {
+  refIds?: string[]
+  facetPacks?: FacetPack[]
+}): Promise<FacetPack[]> {
+  const sourcePacks =
+    input.facetPacks && input.facetPacks.length > 0
+      ? input.facetPacks
+      : await getFacetPacks()
+  const requestedRefIds = new Set((input.refIds || []).filter(Boolean))
+  const seen = new Set<string>()
 
-  if (intentSpec.normalized.palette) {
-    const palette = intentSpec.normalized.palette
-    const textColor = palette.text
-    const bgColor = palette.background
+  return sourcePacks.filter((pack) => {
+    if (requestedRefIds.size > 0 && !requestedRefIds.has(pack.refId)) {
+      return false
+    }
+    if (seen.has(pack.refId)) {
+      return false
+    }
 
-    if (textColor && bgColor) {
-      const ratio = calculateContrastRatio(textColor, bgColor)
+    seen.add(pack.refId)
+    return true
+  })
+}
 
-      if (ratio < 4.5) {
-        const conflictId = nanoid()
-        const adjustedText = adjustForContrast(textColor, bgColor, 4.5)
-        const repairId = nanoid()
+function recommendRecipes(packs: FacetPack[], limit: number): Recipe[] {
+  const candidatesByFacet = getRecipeCandidateRefs(packs)
+  const chosenCandidates = generateRecipeChosenCandidates(candidatesByFacet)
+  const resultLimit = Math.max(1, Math.min(limit, RECIPE_RECOMMENDATION_LIMIT))
 
-        conflicts.push({
-          id: conflictId,
-          type: 'contrast',
-          severity: ratio < 3 ? 'error' : 'warn',
-          message: `Text color contrast is insufficient (${ratio.toFixed(2)}:1)`,
-          rationale: 'WCAG AA requires minimum 4.5:1 for normal text',
-          affectedKeys: ['palette.text', 'palette.background'],
-          suggestedRepairs: [repairId],
-        })
+  return chosenCandidates
+    .map((chosen, index) => {
+      const { normalized, provenance } = buildIntentFromChosenWithPacks(chosen, packs)
+      const evaluated = evaluateIntentSpec({
+        id: `recipe-candidate-${index}`,
+        chosen,
+        normalized,
+        provenance,
+        conflicts: [],
+        repairs: [],
+        history: [],
+        createdAt: Date.now(),
+        targetExport: MVP_EXPORT_TARGET,
+      })
 
-        repairs.push({
-          id: repairId,
-          title: 'Adjust text color for contrast',
-          description: `Change text color from ${textColor} to ${adjustedText}`,
-          changes: [{ key: 'palette.text', from: textColor, to: adjustedText }],
-          explanation: 'Adjusted text color to meet WCAG AA standard (4.5:1)',
-          scoreDelta: 15,
-        })
+      return {
+        chosen,
+        score: evaluated.coherenceScore,
+        sourceCount: countChosenSources(chosen),
+        order: index,
       }
+    })
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score
+      if (a.sourceCount !== b.sourceCount) return a.sourceCount - b.sourceCount
+      return a.order - b.order
+    })
+    .slice(0, resultLimit)
+    .map((candidate, index) => ({
+      id: `recipe-${index + 1}`,
+      name:
+        candidate.sourceCount === 1
+          ? index === 0
+            ? 'Unified Style'
+            : `Unified Style ${index + 1}`
+          : `Coherence Mix ${index + 1}`,
+      chosen: candidate.chosen,
+      coherenceScore: candidate.score,
+      description: describeRecommendedRecipe(candidate.chosen),
+    }))
+}
+
+function getRecipeCandidateRefs(
+  packs: FacetPack[]
+): Record<(typeof recipeFacetFields)[number]['key'], string[]> {
+  return recipeFacetFields.reduce(
+    (acc, field) => {
+      acc[field.key] = packs
+        .filter((pack) =>
+          pack.tokens.some((token) => token.facetType === field.facetType)
+        )
+        .map((pack) => pack.refId)
+      return acc
+    },
+    {} as Record<(typeof recipeFacetFields)[number]['key'], string[]>
+  )
+}
+
+function generateRecipeChosenCandidates(
+  candidatesByFacet: Record<(typeof recipeFacetFields)[number]['key'], string[]>
+): IntentSpec['chosen'][] {
+  const activeFields = recipeFacetFields.filter(
+    (field) => candidatesByFacet[field.key].length > 0
+  )
+
+  if (activeFields.length === 0) {
+    return []
+  }
+
+  const totalCombinations = activeFields.reduce(
+    (total, field) => total * candidatesByFacet[field.key].length,
+    1
+  )
+
+  if (totalCombinations <= MAX_RECIPE_CANDIDATES) {
+    return generateAllRecipeChosenCandidates(activeFields, candidatesByFacet)
+  }
+
+  return generateLimitedRecipeChosenCandidates(activeFields, candidatesByFacet)
+}
+
+function generateAllRecipeChosenCandidates(
+  activeFields: typeof recipeFacetFields[number][],
+  candidatesByFacet: Record<(typeof recipeFacetFields)[number]['key'], string[]>
+): IntentSpec['chosen'][] {
+  const candidates: IntentSpec['chosen'][] = []
+
+  const visit = (fieldIndex: number, chosen: IntentSpec['chosen']) => {
+    if (fieldIndex === activeFields.length) {
+      candidates.push({ ...chosen })
+      return
     }
 
-    const primaryColor = palette.primary
-    if (primaryColor && bgColor) {
-      const ratio = calculateContrastRatio(primaryColor, bgColor)
-      if (ratio < 3) {
-        conflicts.push({
-          id: nanoid(),
-          type: 'contrast',
-          severity: 'warn',
-          message: `Primary color has low contrast with background (${ratio.toFixed(2)}:1)`,
-          rationale: 'Accent colors should have at least 3:1 contrast for visibility',
-          affectedKeys: ['palette.primary', 'palette.background'],
-          suggestedRepairs: [],
-        })
-      }
+    const field = activeFields[fieldIndex]
+    candidatesByFacet[field.key].forEach((refId) => {
+      visit(fieldIndex + 1, { ...chosen, [field.key]: refId })
+    })
+  }
+
+  visit(0, {})
+  return candidates
+}
+
+function generateLimitedRecipeChosenCandidates(
+  activeFields: typeof recipeFacetFields[number][],
+  candidatesByFacet: Record<(typeof recipeFacetFields)[number]['key'], string[]>
+): IntentSpec['chosen'][] {
+  const candidates: IntentSpec['chosen'][] = []
+  const seen = new Set<string>()
+  const refOrder = Array.from(
+    new Set(activeFields.flatMap((field) => candidatesByFacet[field.key]))
+  )
+
+  const push = (chosen: IntentSpec['chosen']) => {
+    if (candidates.length >= MAX_RECIPE_CANDIDATES) return
+
+    const key = JSON.stringify(
+      recipeFacetFields.map((field) => [field.key, chosen[field.key] || null])
+    )
+    if (!seen.has(key)) {
+      seen.add(key)
+      candidates.push(chosen)
     }
   }
 
-  if (intentSpec.normalized.typography && intentSpec.normalized.layout) {
-    const bodySize = intentSpec.normalized.typography.scale.body
-    const density = intentSpec.normalized.layout.density
-
-    if (density === 'compact' && bodySize < 14) {
-      const repairId = nanoid()
-      conflicts.push({
-        id: nanoid(),
-        type: 'densityTypographyMismatch',
-        severity: 'warn',
-        message: 'Compact layout with small body text may hurt readability',
-        rationale: 'Body text smaller than 14px in compact layouts is hard to read',
-        affectedKeys: ['typography.scale.body', 'layout.density'],
-        suggestedRepairs: [repairId],
-      })
-
-      repairs.push({
-        id: repairId,
-        title: 'Increase body font size',
-        description: `Change body size from ${bodySize}px to 14px`,
-        changes: [{ key: 'typography.scale.body', from: bodySize, to: 14 }],
-        explanation: 'Increased to minimum readable size for compact layouts',
-        scoreDelta: 10,
-      })
-    }
-  }
-
-  if (intentSpec.normalized.spacing) {
-    const baseUnit = intentSpec.normalized.spacing.baseUnit
-    const density = intentSpec.normalized.layout?.density
-
-    if (density === 'compact' && baseUnit === 8) {
-      conflicts.push({
-        id: nanoid(),
-        type: 'spacingScaleMismatch',
-        severity: 'info',
-        message: 'Spacing base unit (8px) might be too large for compact layout',
-        rationale: 'Consider using 4px base unit for tighter spacing',
-        affectedKeys: ['spacing.baseUnit', 'layout.density'],
-        suggestedRepairs: [],
-      })
-    } else if (density === 'comfortable' && baseUnit === 4) {
-      conflicts.push({
-        id: nanoid(),
-        type: 'spacingScaleMismatch',
-        severity: 'info',
-        message: 'Spacing base unit (4px) might be too tight for comfortable layout',
-        rationale: 'Consider using 8px base unit for more breathing room',
-        affectedKeys: ['spacing.baseUnit', 'layout.density'],
-        suggestedRepairs: [],
-      })
-    }
-  }
-
-  let coherenceScore = 100
-  conflicts.forEach((conflict) => {
-    if (conflict.severity === 'error') coherenceScore -= 20
-    else if (conflict.severity === 'warn') coherenceScore -= 10
-    else coherenceScore -= 5
+  refOrder.forEach((refId) => {
+    push(buildPreferredRecipeChosen(activeFields, candidatesByFacet, refId))
   })
 
-  return {
-    conflicts,
-    repairs,
-    coherenceScore: Math.max(0, Math.min(100, coherenceScore)),
-  }
+  const base = buildPreferredRecipeChosen(
+    activeFields,
+    candidatesByFacet,
+    refOrder[0]
+  )
+  push(base)
+
+  activeFields.forEach((field) => {
+    candidatesByFacet[field.key].forEach((refId) => {
+      push({ ...base, [field.key]: refId })
+    })
+  })
+
+  return candidates
+}
+
+function buildPreferredRecipeChosen(
+  activeFields: typeof recipeFacetFields[number][],
+  candidatesByFacet: Record<(typeof recipeFacetFields)[number]['key'], string[]>,
+  preferredRefId: string | undefined
+): IntentSpec['chosen'] {
+  return activeFields.reduce<IntentSpec['chosen']>((chosen, field) => {
+    const refs = candidatesByFacet[field.key]
+    return {
+      ...chosen,
+      [field.key]:
+        preferredRefId && refs.includes(preferredRefId)
+          ? preferredRefId
+          : refs[0],
+    }
+  }, {})
+}
+
+function countChosenSources(chosen: IntentSpec['chosen']): number {
+  return new Set(Object.values(chosen).filter(Boolean)).size
+}
+
+function describeRecommendedRecipe(chosen: IntentSpec['chosen']): string {
+  const sourceCount = countChosenSources(chosen)
+  const facetCount = Object.values(chosen).filter(Boolean).length
+  const sourceLabel = sourceCount === 1 ? 'source' : 'sources'
+  const facetLabel = facetCount === 1 ? 'facet' : 'facets'
+
+  return `${facetCount} ${facetLabel} from ${sourceCount} reference ${sourceLabel}, ranked by coherence`
 }
 
 function calculateDiffs(

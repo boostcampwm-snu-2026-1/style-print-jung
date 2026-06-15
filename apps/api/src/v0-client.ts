@@ -241,5 +241,5 @@ function getPlatformModelId(model: string): string {
     return model
   }
 
-  return 'v0-auto'
+  return 'v0-mini'
 }
