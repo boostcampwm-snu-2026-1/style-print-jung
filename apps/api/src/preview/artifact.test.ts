@@ -329,6 +329,55 @@ describe('/api/recipes/recommend', () => {
     expect(body.recipes?.[0]?.name).toBe('Unified Style')
     expect(new Set(Object.values(body.recipes?.[0]?.chosen || {})).size).toBe(1)
   })
+
+  test('keeps the best overall recipe and adds mixed recipes with five or more sources', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/recipes/recommend',
+      payload: {
+        facetPacks: [
+          createFacetPack('ref-1'),
+          createFacetPack('ref-2'),
+          createFacetPack('ref-3'),
+          createFacetPack('ref-4'),
+          createFacetPack('ref-5'),
+        ],
+      },
+    })
+
+    const body = response.json() as RecommendRecipesResponse
+
+    expect(response.statusCode).toBe(200)
+    expect(body.recipes).toHaveLength(3)
+    expect(body.recipes?.[0]?.name).toBe('Unified Style')
+    expect(new Set(Object.values(body.recipes?.[0]?.chosen || {})).size).toBe(1)
+    body.recipes?.slice(1).forEach((recipe) => {
+      expect(
+        new Set(Object.values(recipe.chosen).filter(Boolean)).size
+      ).toBeGreaterThanOrEqual(3)
+    })
+  })
+
+  test('uses no more than ten reference packs for recommendations', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/recipes/recommend',
+      payload: {
+        facetPacks: Array.from({ length: 11 }, (_item, index) =>
+          createFacetPack(`ref-${index + 1}`)
+        ),
+      },
+    })
+
+    const body = response.json() as RecommendRecipesResponse
+
+    expect(response.statusCode).toBe(200)
+    expect(
+      body.recipes?.some((recipe) =>
+        Object.values(recipe.chosen).includes('ref-11')
+      )
+    ).toBe(false)
+  })
 })
 
 function trackPreviewId(id: string): string {

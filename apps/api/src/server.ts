@@ -96,10 +96,18 @@ type GenerationJob = {
   updatedAt: number
 }
 
+type RecipeCandidate = {
+  chosen: IntentSpec['chosen']
+  score: number
+  sourceCount: number
+  order: number
+}
+
 const generationJobs = new Map<string, GenerationJob>()
 const GENERATION_JOB_TTL_MS = 30 * 60 * 1000
 const RECIPE_RECOMMENDATION_LIMIT = 3
 const MAX_RECIPE_CANDIDATES = 200
+const MAX_REFERENCE_ASSETS = 10
 
 const recipeFacetFields = [
   { key: 'colorRefId', facetType: 'color', label: 'Color' },
@@ -185,8 +193,19 @@ app.post('/api/references/upload', async (request, reply) => {
     await ensureUploadDir()
 
     let fileIndex = 0
+    const existingReferenceCount = (await getReferences()).length
     for await (const file of request.files()) {
       const mime = file.mimetype.toLowerCase()
+
+      if (existingReferenceCount + references.length >= MAX_REFERENCE_ASSETS) {
+        await file.toBuffer().catch(() => undefined)
+        await rollback()
+        return reply.status(400).send({
+          success: false,
+          references: [],
+          error: `Upload limit reached. Keep ${MAX_REFERENCE_ASSETS} or fewer reference images.`,
+        } satisfies UploadResponse)
+      }
 
       if (!config.upload.allowedMimes.includes(mime)) {
         // Drain the rejected file's stream so the multipart request can finish
@@ -809,7 +828,7 @@ async function runGenerationJob(input: {
         error instanceof Error ? `Preview unavailable: ${error.message}` : 'Preview unavailable'
     }
 
-    const generatedCode: GeneratedCode = {
+    const baseGeneratedCode: GeneratedCode = {
       id: generatedCodeId,
       intentSpecId: input.intentSpec.id,
       mode: input.stepMode,
@@ -821,12 +840,18 @@ async function runGenerationJob(input: {
       createdAt: Date.now(),
     }
 
-    await saveGeneratedCode(generatedCode)
-
+    // Capture the screenshot before marking the job succeeded. The client only
+    // ever reads job.generatedCode, so a fire-and-forget capture (saved to the
+    // DB only) would never surface screenshotUrl in the UI.
+    let generatedCode = baseGeneratedCode
     if (previewUrl) {
-      void captureAndSaveScreenshot(generatedCode, previewUrl, input.headers).catch((error) => {
-        app.log.error(error)
-      })
+      generatedCode = await captureAndSaveScreenshot(
+        baseGeneratedCode,
+        previewUrl,
+        input.headers
+      )
+    } else {
+      await saveGeneratedCode(baseGeneratedCode)
     }
 
     updateGenerationJob(input.jobId, {
@@ -1036,20 +1061,35 @@ async function captureAndSaveScreenshot(
   generatedCode: GeneratedCode,
   previewUrl: string,
   headers: Record<string, string | string[] | undefined>
-) {
-  const screenshot = await capturePreviewScreenshot({
-    id: generatedCode.id,
-    previewUrl,
-    webOrigin: getApiOrigin(headers) || config.api.webOrigin,
-  })
+): Promise<GeneratedCode> {
+  let enriched = generatedCode
 
-  await saveGeneratedCode({
-    ...generatedCode,
-    screenshotUrl: screenshot.screenshotUrl
-      ? toApiAssetUrl(screenshot.screenshotUrl, headers)
-      : undefined,
-    screenshotError: screenshot.error,
-  })
+  try {
+    const screenshot = await capturePreviewScreenshot({
+      id: generatedCode.id,
+      previewUrl,
+      webOrigin: getApiOrigin(headers) || config.api.webOrigin,
+    })
+
+    enriched = {
+      ...generatedCode,
+      screenshotUrl: screenshot.screenshotUrl
+        ? toApiAssetUrl(screenshot.screenshotUrl, headers)
+        : undefined,
+      screenshotError: screenshot.error,
+    }
+  } catch (error) {
+    // A screenshot failure must not fail the whole generation job; keep the
+    // generated code and surface the reason instead.
+    enriched = {
+      ...generatedCode,
+      screenshotError:
+        error instanceof Error ? error.message : 'Screenshot capture failed',
+    }
+  }
+
+  await saveGeneratedCode(enriched)
+  return enriched
 }
 
 function toApiAssetUrl(
@@ -1241,7 +1281,7 @@ async function resolveRecommendationFacetPacks(input: {
 
     seen.add(pack.refId)
     return true
-  })
+  }).slice(0, MAX_REFERENCE_ASSETS)
 }
 
 function recommendRecipes(packs: FacetPack[], limit: number): Recipe[] {
@@ -1249,7 +1289,7 @@ function recommendRecipes(packs: FacetPack[], limit: number): Recipe[] {
   const chosenCandidates = generateRecipeChosenCandidates(candidatesByFacet)
   const resultLimit = Math.max(1, Math.min(limit, RECIPE_RECOMMENDATION_LIMIT))
 
-  return chosenCandidates
+  const rankedCandidates: RecipeCandidate[] = chosenCandidates
     .map((chosen, index) => {
       const { normalized, provenance, styleContext } = buildIntentFromChosenWithPacks(chosen, packs)
       const evaluated = evaluateIntentSpec({
@@ -1277,7 +1317,12 @@ function recommendRecipes(packs: FacetPack[], limit: number): Recipe[] {
       if (a.sourceCount !== b.sourceCount) return a.sourceCount - b.sourceCount
       return a.order - b.order
     })
-    .slice(0, resultLimit)
+
+  return selectRecommendedRecipeCandidates(
+    rankedCandidates,
+    resultLimit,
+    countRecommendationSources(candidatesByFacet)
+  )
     .map((candidate, index) => ({
       id: `recipe-${index + 1}`,
       name:
@@ -1339,9 +1384,7 @@ function getRecipeCandidateRefs(
 function generateRecipeChosenCandidates(
   candidatesByFacet: Record<(typeof recipeFacetFields)[number]['key'], string[]>
 ): IntentSpec['chosen'][] {
-  const activeFields = recipeFacetFields.filter(
-    (field) => candidatesByFacet[field.key].length > 0
-  )
+  const activeFields = getActiveRecipeFields(candidatesByFacet)
 
   if (activeFields.length === 0) {
     return []
@@ -1394,9 +1437,7 @@ function generateLimitedRecipeChosenCandidates(
   const push = (chosen: IntentSpec['chosen']) => {
     if (candidates.length >= MAX_RECIPE_CANDIDATES) return
 
-    const key = JSON.stringify(
-      recipeFacetFields.map((field) => [field.key, chosen[field.key] || null])
-    )
+    const key = getChosenCandidateKey(chosen)
     if (!seen.has(key)) {
       seen.add(key)
       candidates.push(chosen)
@@ -1420,7 +1461,113 @@ function generateLimitedRecipeChosenCandidates(
     })
   })
 
+  buildThreeSourceRecipeCandidates(activeFields, candidatesByFacet, refOrder).forEach(push)
+
   return candidates
+}
+
+function buildThreeSourceRecipeCandidates(
+  activeFields: typeof recipeFacetFields[number][],
+  candidatesByFacet: Record<(typeof recipeFacetFields)[number]['key'], string[]>,
+  refOrder: string[]
+): IntentSpec['chosen'][] {
+  const candidates: IntentSpec['chosen'][] = []
+
+  for (let first = 0; first < refOrder.length - 2; first += 1) {
+    for (let second = first + 1; second < refOrder.length - 1; second += 1) {
+      for (let third = second + 1; third < refOrder.length; third += 1) {
+        const sourceGroup = [refOrder[first], refOrder[second], refOrder[third]]
+
+        sourceGroup.forEach((_refId, sourceOffset) => {
+          candidates.push(
+            buildDistributedRecipeChosen(
+              activeFields,
+              candidatesByFacet,
+              sourceGroup,
+              sourceOffset
+            )
+          )
+        })
+      }
+    }
+  }
+
+  return candidates
+}
+
+function buildDistributedRecipeChosen(
+  activeFields: typeof recipeFacetFields[number][],
+  candidatesByFacet: Record<(typeof recipeFacetFields)[number]['key'], string[]>,
+  sourceGroup: string[],
+  sourceOffset: number
+): IntentSpec['chosen'] {
+  return activeFields.reduce<IntentSpec['chosen']>((chosen, field, fieldIndex) => {
+    const refs = candidatesByFacet[field.key]
+    let selectedRefId = refs[fieldIndex % refs.length]
+
+    for (let index = 0; index < sourceGroup.length; index += 1) {
+      const refId = sourceGroup[(fieldIndex + sourceOffset + index) % sourceGroup.length]
+      if (refs.includes(refId)) {
+        selectedRefId = refId
+        break
+      }
+    }
+
+    return {
+      ...chosen,
+      [field.key]: selectedRefId,
+    }
+  }, {})
+}
+
+function selectRecommendedRecipeCandidates(
+  rankedCandidates: RecipeCandidate[],
+  resultLimit: number,
+  sourceCount: number
+): RecipeCandidate[] {
+  if (sourceCount < 5 || resultLimit <= 1) {
+    return rankedCandidates.slice(0, resultLimit)
+  }
+
+  const selected: RecipeCandidate[] = []
+  const selectedKeys = new Set<string>()
+  const selectedMixedSourceSets = new Set<string>()
+
+  const pushCandidate = (candidate: RecipeCandidate) => {
+    if (selected.length >= resultLimit) return
+
+    const key = getChosenCandidateKey(candidate.chosen)
+    if (selectedKeys.has(key)) return
+
+    selected.push(candidate)
+    selectedKeys.add(key)
+
+    if (candidate.sourceCount >= 3) {
+      selectedMixedSourceSets.add(getChosenSourceSetKey(candidate.chosen))
+    }
+  }
+
+  const bestOverall = rankedCandidates[0]
+  if (bestOverall) {
+    pushCandidate(bestOverall)
+  }
+
+  for (const candidate of rankedCandidates) {
+    if (selected.length >= resultLimit) break
+    if (candidate.sourceCount < 3) continue
+
+    const sourceSetKey = getChosenSourceSetKey(candidate.chosen)
+    if (selectedMixedSourceSets.has(sourceSetKey)) continue
+
+    pushCandidate(candidate)
+  }
+
+  for (const candidate of rankedCandidates) {
+    if (selected.length >= resultLimit) break
+    pushCandidate(candidate)
+  }
+
+  return selected
 }
 
 function buildPreferredRecipeChosen(
@@ -1440,8 +1587,32 @@ function buildPreferredRecipeChosen(
   }, {})
 }
 
+function getActiveRecipeFields(
+  candidatesByFacet: Record<(typeof recipeFacetFields)[number]['key'], string[]>
+): typeof recipeFacetFields[number][] {
+  return recipeFacetFields.filter((field) => candidatesByFacet[field.key].length > 0)
+}
+
+function countRecommendationSources(
+  candidatesByFacet: Record<(typeof recipeFacetFields)[number]['key'], string[]>
+): number {
+  return new Set(
+    getActiveRecipeFields(candidatesByFacet).flatMap((field) => candidatesByFacet[field.key])
+  ).size
+}
+
 function countChosenSources(chosen: IntentSpec['chosen']): number {
   return new Set(Object.values(chosen).filter(Boolean)).size
+}
+
+function getChosenCandidateKey(chosen: IntentSpec['chosen']): string {
+  return JSON.stringify(
+    recipeFacetFields.map((field) => [field.key, chosen[field.key] || null])
+  )
+}
+
+function getChosenSourceSetKey(chosen: IntentSpec['chosen']): string {
+  return [...new Set(Object.values(chosen).filter(Boolean))].sort().join('|')
 }
 
 function describeRecommendedRecipe(chosen: IntentSpec['chosen']): string {
