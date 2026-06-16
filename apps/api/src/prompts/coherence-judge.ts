@@ -14,7 +14,7 @@ const RUBRIC = [
   'Score the IntentSpec coherence from 0 to 100.',
   'Evaluate whether the selected facets can produce one internally consistent UI.',
   'Reward traceable source evidence and complete core facets.',
-  'Penalize accessibility issues, mismatched density, unclear hierarchy, missing provenance, and underspecified generation intent.',
+  'Penalize accessibility issues, mismatched density, unclear hierarchy, missing provenance, weak source harmony, and underspecified generation intent.',
   'Use the supplied rule-based baseline as a reference, but correct it when the rubric makes a better judgment.',
   'Return concrete findings tied to affected IntentSpec keys.',
 ].join('\n')
@@ -48,6 +48,7 @@ export function buildCoherenceJudgePrompt({
     '- visualConsistency: density, spacing, typography, and component style fit.',
     '- intentCoverage: core facets are present enough to guide generation.',
     '- provenanceCoverage: chosen values are traceable to reference evidence.',
+    '- sourceHarmony: selected reference moods, confidence, and facet sources can combine into one product.',
     '- generationReadiness: brief and screen plan are specific enough for export.',
     '',
     `Rule-based baseline: ${JSON.stringify(baseline)}`,
@@ -57,6 +58,7 @@ export function buildCoherenceJudgePrompt({
       chosen: intentSpec.chosen,
       normalized: intentSpec.normalized,
       provenance: intentSpec.provenance,
+      styleContext: intentSpec.styleContext,
       generationBrief: intentSpec.generationBrief,
     })}`,
   ].join('\n')

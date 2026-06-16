@@ -17,8 +17,21 @@ const coherenceDimensions: CoherenceDimension[] = [
   'visualConsistency',
   'intentCoverage',
   'provenanceCoverage',
+  'sourceHarmony',
   'generationReadiness',
 ]
+
+const chosenFacetKeys = [
+  { key: 'colorRefId', label: 'color', provenancePrefix: 'palette' },
+  { key: 'typographyRefId', label: 'typography', provenancePrefix: 'typography' },
+  { key: 'layoutRefId', label: 'layout', provenancePrefix: 'layout' },
+  { key: 'spacingRefId', label: 'spacing', provenancePrefix: 'spacing' },
+  {
+    key: 'componentStyleRefId',
+    label: 'component style',
+    provenancePrefix: 'componentStyle',
+  },
+] as const
 
 export function evaluateIntentSpec(intentSpec: IntentSpec): {
   conflicts: ConflictCard[]
@@ -75,7 +88,6 @@ export function evaluateIntentSpec(intentSpec: IntentSpec): {
           description: `Change text color from ${textColor} to ${adjustedText}`,
           changes: [{ key: 'palette.text', from: textColor, to: adjustedText }],
           explanation: 'Adjusted text color to meet WCAG AA standard (4.5:1)',
-          scoreDelta: 15,
         })
       }
     }
@@ -133,7 +145,6 @@ export function evaluateIntentSpec(intentSpec: IntentSpec): {
         description: `Change body size from ${bodySize}px to 14px`,
         changes: [{ key: 'typography.scale.body', from: bodySize, to: 14 }],
         explanation: 'Increased to minimum readable size for compact layouts',
-        scoreDelta: 10,
       })
     }
   }
@@ -143,6 +154,7 @@ export function evaluateIntentSpec(intentSpec: IntentSpec): {
     const density = intentSpec.normalized.layout?.density
 
     if (density === 'compact' && baseUnit === 8) {
+      const repairId = nanoid()
       conflicts.push({
         id: nanoid(),
         type: 'spacingScaleMismatch',
@@ -150,7 +162,7 @@ export function evaluateIntentSpec(intentSpec: IntentSpec): {
         message: 'Spacing base unit (8px) might be too large for compact layout',
         rationale: 'Consider using 4px base unit for tighter spacing',
         affectedKeys: ['spacing.baseUnit', 'layout.density'],
-        suggestedRepairs: [],
+        suggestedRepairs: [repairId],
       })
       addFinding({
         dimension: 'visualConsistency',
@@ -159,7 +171,16 @@ export function evaluateIntentSpec(intentSpec: IntentSpec): {
         rationale: 'Consider using 4px base unit for tighter spacing',
         affectedKeys: ['spacing.baseUnit', 'layout.density'],
       }, 5)
+
+      repairs.push({
+        id: repairId,
+        title: 'Tighten spacing base unit',
+        description: 'Change spacing base unit from 8px to 4px',
+        changes: [{ key: 'spacing.baseUnit', from: 8, to: 4 }],
+        explanation: 'Aligned the spacing base unit with compact layout density.',
+      })
     } else if (density === 'comfortable' && baseUnit === 4) {
+      const repairId = nanoid()
       conflicts.push({
         id: nanoid(),
         type: 'spacingScaleMismatch',
@@ -167,7 +188,7 @@ export function evaluateIntentSpec(intentSpec: IntentSpec): {
         message: 'Spacing base unit (4px) might be too tight for comfortable layout',
         rationale: 'Consider using 8px base unit for more breathing room',
         affectedKeys: ['spacing.baseUnit', 'layout.density'],
-        suggestedRepairs: [],
+        suggestedRepairs: [repairId],
       })
       addFinding({
         dimension: 'visualConsistency',
@@ -176,11 +197,20 @@ export function evaluateIntentSpec(intentSpec: IntentSpec): {
         rationale: 'Consider using 8px base unit for more breathing room',
         affectedKeys: ['spacing.baseUnit', 'layout.density'],
       }, 5)
+
+      repairs.push({
+        id: repairId,
+        title: 'Relax spacing base unit',
+        description: 'Change spacing base unit from 4px to 8px',
+        changes: [{ key: 'spacing.baseUnit', from: 4, to: 8 }],
+        explanation: 'Aligned the spacing base unit with comfortable layout density.',
+      })
     }
   }
 
   addCoverageFindings(intentSpec, addFinding)
   addComponentStyleFindings(intentSpec, addFinding)
+  addSourceHarmonyFindings(intentSpec, addFinding)
 
   const dimensions = coherenceDimensions.reduce((acc, dimension) => {
     acc[dimension] = clampScore(100 - deductions[dimension])
@@ -284,6 +314,92 @@ function addComponentStyleFindings(
       affectedKeys: ['componentStyle', 'layout.density'],
     }, 5)
   }
+}
+
+function addSourceHarmonyFindings(
+  intentSpec: IntentSpec,
+  addFinding: (finding: CoherenceFinding, points: number) => void
+) {
+  chosenFacetKeys.forEach(({ key, label, provenancePrefix }) => {
+    const refId = intentSpec.chosen[key]
+    if (!refId) return
+
+    const hasProvenance = Object.entries(intentSpec.provenance).some(
+      ([facetKey, evidence]) =>
+        evidence.refId === refId &&
+        (facetKey === provenancePrefix || facetKey.startsWith(`${provenancePrefix}.`))
+    )
+
+    if (!hasProvenance) {
+      addFinding({
+        dimension: 'provenanceCoverage',
+        severity: 'warn',
+        message: `Selected ${label} reference has no extracted ${label} evidence`,
+        rationale: 'A selected source should map to extracted facet evidence before generation.',
+        affectedKeys: [key, provenancePrefix],
+      }, 8)
+    }
+  })
+
+  const sources = intentSpec.styleContext?.sources || []
+  if (sources.length === 0) return
+
+  const lowConfidenceSources = sources.filter(
+    (source) => source.averageConfidence > 0 && source.averageConfidence < 0.65
+  )
+  lowConfidenceSources.forEach((source) => {
+    addFinding({
+      dimension: 'sourceHarmony',
+      severity: 'info',
+      message: `Reference ${source.refId} has low facet confidence`,
+      rationale: 'Low-confidence source facets make mixed recipes less predictable.',
+      affectedKeys: [`source.${source.refId}`],
+    }, 4)
+  })
+
+  if (sources.length < 2) return
+
+  const sharedMood = getSharedMoodKeywords(sources.map((source) => source.moodKeywords))
+  const hasMoodEvidence = sources.every((source) => source.moodKeywords.length > 0)
+
+  if (hasMoodEvidence && sharedMood.length === 0) {
+    addFinding({
+      dimension: 'sourceHarmony',
+      severity: 'warn',
+      message: 'Selected references do not share mood keywords',
+      rationale: 'Mixes from unrelated moods need stronger reconciliation before generation.',
+      affectedKeys: ['styleContext.moodKeywords'],
+    }, 10)
+  }
+
+  const uniqueSourceCount = new Set(sources.map((source) => source.refId)).size
+  if (uniqueSourceCount >= 4) {
+    addFinding({
+      dimension: 'sourceHarmony',
+      severity: 'info',
+      message: 'Recipe mixes facets from many references',
+      rationale: 'Using many sources increases the burden on the exporter to unify the design.',
+      affectedKeys: ['chosen'],
+    }, 5)
+  }
+}
+
+function getSharedMoodKeywords(keywordGroups: string[][]): string[] {
+  if (keywordGroups.length === 0) return []
+
+  return keywordGroups
+    .slice(1)
+    .reduce(
+      (shared, keywords) =>
+        shared.filter((keyword) =>
+          keywords.some((candidate) => candidate.toLowerCase() === keyword.toLowerCase())
+        ),
+      uniqueStrings(keywordGroups[0])
+    )
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values.map((value) => value.trim()).filter(Boolean))]
 }
 
 function createDimensionScores(value: number): CoherenceDimensionScores {

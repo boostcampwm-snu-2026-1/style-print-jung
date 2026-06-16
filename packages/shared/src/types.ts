@@ -175,6 +175,7 @@ export type CoherenceDimension =
   | 'visualConsistency'
   | 'intentCoverage'
   | 'provenanceCoverage'
+  | 'sourceHarmony'
   | 'generationReadiness'
 
 export type CoherenceDimensionScores = Record<CoherenceDimension, number>

@@ -240,6 +240,7 @@ function normalizeCoherenceJudgePayload(
       visualConsistency: clampScore(result.dimensions.visualConsistency),
       intentCoverage: clampScore(result.dimensions.intentCoverage),
       provenanceCoverage: clampScore(result.dimensions.provenanceCoverage),
+      sourceHarmony: clampScore(result.dimensions.sourceHarmony),
       generationReadiness: clampScore(result.dimensions.generationReadiness),
     },
     findings: result.findings.slice(0, 12).map(normalizeCoherenceFinding),
@@ -318,6 +319,7 @@ const coherenceDimensionScoresSchema = {
     'visualConsistency',
     'intentCoverage',
     'provenanceCoverage',
+    'sourceHarmony',
     'generationReadiness',
   ],
   properties: {
@@ -325,6 +327,7 @@ const coherenceDimensionScoresSchema = {
     visualConsistency: { type: 'number' },
     intentCoverage: { type: 'number' },
     provenanceCoverage: { type: 'number' },
+    sourceHarmony: { type: 'number' },
     generationReadiness: { type: 'number' },
   },
 }
@@ -341,6 +344,7 @@ const coherenceFindingSchema = {
         'visualConsistency',
         'intentCoverage',
         'provenanceCoverage',
+        'sourceHarmony',
         'generationReadiness',
       ],
     },
