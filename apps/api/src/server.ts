@@ -20,6 +20,7 @@ import {
   saveGeneratedCode,
   saveAuditReport,
   saveCoherenceJudgeResult,
+  saveCoherenceFeedback,
 } from './db'
 import {
   extractColorsFromBase64,
@@ -44,6 +45,7 @@ import type {
   ApplyRepairResponse,
   ColorRole,
   ComponentStyleFacetToken,
+  CoherenceFeedback,
   CoherenceEvaluation,
   CreateIntentResponse,
   EvaluateRequest,
@@ -63,6 +65,8 @@ import type {
   RecommendRecipesResponse,
   Recipe,
   SpacingFacetToken,
+  SubmitCoherenceFeedbackRequest,
+  SubmitCoherenceFeedbackResponse,
   UploadResponse,
 } from '@style-print-jung/shared'
 
@@ -579,6 +583,73 @@ app.post('/api/intents/apply-repair', async (request, reply) => {
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error',
     } satisfies ApplyRepairResponse)
+  }
+})
+
+app.post('/api/coherence/feedback', async (request, reply) => {
+  try {
+    const {
+      intentSpecId,
+      judgeResultId,
+      rating,
+      expectedScore,
+      comment,
+    } = request.body as Partial<SubmitCoherenceFeedbackRequest>
+
+    if (!intentSpecId || !rating) {
+      return reply.status(400).send({
+        success: false,
+        error: 'Missing intentSpecId or rating',
+      } satisfies SubmitCoherenceFeedbackResponse)
+    }
+
+    if (!['accurate', 'tooHigh', 'tooLow', 'unclear'].includes(rating)) {
+      return reply.status(400).send({
+        success: false,
+        error: 'Invalid coherence feedback rating',
+      } satisfies SubmitCoherenceFeedbackResponse)
+    }
+
+    if (
+      expectedScore !== undefined &&
+      (expectedScore < 0 || expectedScore > 100)
+    ) {
+      return reply.status(400).send({
+        success: false,
+        error: 'expectedScore must be between 0 and 100',
+      } satisfies SubmitCoherenceFeedbackResponse)
+    }
+
+    const intentSpec = await getIntentSpec(intentSpecId)
+    if (!intentSpec) {
+      return reply.status(404).send({
+        success: false,
+        error: 'IntentSpec not found',
+      } satisfies SubmitCoherenceFeedbackResponse)
+    }
+
+    const feedback: CoherenceFeedback = {
+      id: nanoid(),
+      intentSpecId,
+      judgeResultId,
+      rating,
+      expectedScore,
+      comment: comment?.trim() || undefined,
+      createdAt: Date.now(),
+    }
+
+    await saveCoherenceFeedback(feedback)
+
+    return reply.send({
+      success: true,
+      feedback,
+    } satisfies SubmitCoherenceFeedbackResponse)
+  } catch (error) {
+    request.log.error(error)
+    return reply.status(500).send({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    } satisfies SubmitCoherenceFeedbackResponse)
   }
 })
 

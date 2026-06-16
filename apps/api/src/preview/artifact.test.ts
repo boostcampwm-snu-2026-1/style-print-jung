@@ -238,6 +238,20 @@ describe('coherence judge prompt', () => {
   })
 })
 
+describe('/api/coherence/feedback', () => {
+  test('rejects incomplete feedback payloads', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/coherence/feedback',
+      payload: {
+        intentSpecId: 'missing-rating',
+      },
+    })
+
+    expect(response.statusCode).toBe(400)
+  })
+})
+
 describe('/api/recipes/recommend', () => {
   test('returns top 3 recipes sorted by coherence without persisting intents', async () => {
     const beforeIntentIds = (await getIntentSpecs()).map((intent) => intent.id)
