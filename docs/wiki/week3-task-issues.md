@@ -178,7 +178,13 @@
 
 ## GitHub Issue 등록 및 해결 기록
 
-아래 항목은 기존 3주차 작업을 GitHub Issue로 등록한 뒤, push된 commit 근거와 함께 완료 처리할 수 있는 단위다.
+기존 open issue는 push된 commit과 검증 결과를 comment로 남긴 뒤 close했다.
+
+- [#2 [2주차] Agent workflow 평가/검증 루프 개선](https://github.com/boostcampwm-snu-2026-1/style-print-jung/issues/2): close 완료
+- [#3 [2주차] Reference 업로드 metadata 보강](https://github.com/boostcampwm-snu-2026-1/style-print-jung/issues/3): close 완료
+- [#5 [2주차] Vercel/Railway FE-BE 배포 구성 및 시도](https://github.com/boostcampwm-snu-2026-1/style-print-jung/issues/5): close 완료
+
+아래 항목은 3주차 구현 결과를 issue 단위로 다시 추적할 때 사용할 수 있는 정리 초안이다.
 
 ### Issue 1. Prototype preview generation 안정화
 
