@@ -437,6 +437,59 @@
       color: var(--accent-strong);
       font-weight: 900;
     }
+    .architecture-layers {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 12px;
+      margin: 18px 0;
+    }
+    .architecture-layer {
+      position: relative;
+      min-height: 168px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px;
+      background: #fff;
+    }
+    .architecture-layer:not(:last-child)::after {
+      content: "→";
+      position: absolute;
+      top: 50%;
+      right: -13px;
+      transform: translateY(-50%);
+      color: var(--accent-strong);
+      font-size: 20px;
+      font-weight: 900;
+    }
+    .architecture-layer .layer-no {
+      color: var(--accent-strong);
+      font-size: 12px;
+      font-weight: 900;
+    }
+    .architecture-layer h3 {
+      margin: 8px 0 8px;
+      color: var(--ink);
+      font-size: 16px;
+    }
+    .architecture-layer p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+    .architecture-bridge {
+      margin: 12px 0 0;
+      padding: 12px 14px;
+      border-radius: 8px;
+      background: var(--dark);
+      color: #fff;
+      font-size: 14px;
+      font-weight: 700;
+    }
+    .architecture-bridge code {
+      background: rgba(255, 255, 255, .14);
+      color: #fff;
+    }
     .pipeline-wide {
       display: grid;
       grid-template-columns: repeat(6, minmax(0, 1fr));
@@ -547,6 +600,7 @@
       .two-col,
       .three-col,
       .diagram,
+      .architecture-layers,
       .pipeline-wide,
       .matrix-grid,
       .score-grid,
@@ -679,55 +733,52 @@
     </section>
 
     <section class="slide" id="slide-5">
-      <h2>시스템 아키텍처: 컴포넌트와 책임</h2>
-      <div class="diagram">
-        <div class="diagram-col">
-          <div class="node">
-            <div class="name">사용자</div>
-            <div class="desc">레퍼런스 업로드 · recipe 선택 · 생성 요청</div>
-          </div>
-          <div class="arrow">↓</div>
-          <div class="node">
-            <div class="name">프론트엔드</div>
-            <div class="desc">Vite React · 단계 UI · 미리보기 iframe · 감사/출처 탭</div>
-          </div>
+      <h2>시스템 아키텍처: 5개 레이어와 책임</h2>
+      <div class="architecture-layers">
+        <div class="architecture-layer">
+          <div class="layer-no">01</div>
+          <h3>Frontend</h3>
+          <p>Vite React + TypeScript. 사용자는 업로드, 레시피 선택, 생성 결과, audit 결과를 확인합니다.</p>
         </div>
-        <div class="diagram-col">
-          <div class="node">
-            <div class="name">Fastify API</div>
-            <div class="desc">타입 기반 REST API · multipart · 작업 상태 polling · CORS</div>
-          </div>
-          <div class="arrow">↓</div>
-          <div class="node">
-            <div class="name">워크플로 상태</div>
-            <div class="desc">ReferenceAsset · FacetPack · IntentSpec · GeneratedCode · AuditReport</div>
-          </div>
+        <div class="architecture-layer">
+          <div class="layer-no">02</div>
+          <h3>Backend API</h3>
+          <p>Fastify API가 upload, extract, intent, evaluate, generate, audit 요청을 받습니다.</p>
         </div>
-        <div class="diagram-col">
-          <div class="node">
-            <div class="name">도구 / 모델</div>
-            <div class="desc">sharp · OpenAI Responses API · v0 API · Playwright 스크린샷</div>
-          </div>
-          <div class="arrow">↓</div>
-          <div class="node">
-            <div class="name">실행 산출물</div>
-            <div class="desc">data/*.json · public/uploads · generated-previews · screenshot.png</div>
-          </div>
+        <div class="architecture-layer">
+          <div class="layer-no">03</div>
+          <h3>Agent Orchestrator</h3>
+          <p>facet 추출, recipe 추천, coherence 평가, repair plan, generation job을 순서대로 연결합니다.</p>
+        </div>
+        <div class="architecture-layer">
+          <div class="layer-no">04</div>
+          <h3>Tools & Models</h3>
+          <p>sharp, OpenAI, v0, esbuild, Playwright가 실제 분석, 생성, 미리보기, 감사를 수행합니다.</p>
+        </div>
+        <div class="architecture-layer">
+          <div class="layer-no">05</div>
+          <h3>Runtime Artifacts</h3>
+          <p>ReferenceAsset, FacetPack, IntentSpec, GeneratedCode, AuditReport가 단계별 기록으로 남습니다.</p>
         </div>
       </div>
+      <div class="architecture-bridge">
+        앞 슬라이드의 6단계 파이프라인은 이 5개 레이어를 통과하며 실행되고, 산출물은 현재 <code>data/*.json</code>과 <code>public/uploads</code>에 저장됩니다.
+      </div>
       <div class="summary-box">
-        <strong>핵심 계약</strong>
+        <strong>레이어별 핵심 계약</strong>
         <ul>
-          <li>공유 타입: <code>packages/shared/src/types.ts</code></li>
-          <li>API 호환성: <code>/api/...</code> 경로 · Vite proxy/Railway 배포 공통</li>
-          <li>MVP 저장소: JSON/local files · production 후보 DB/object storage</li>
+          <li>Frontend는 사용자가 업로드, 레시피 선택, 생성 결과, audit 결과를 확인하는 표면입니다.</li>
+          <li>Backend API는 <code>/api/references/upload</code>, <code>/api/facets/extract</code>, <code>/api/intents/create</code>, <code>/api/intents/evaluate</code>, <code>/api/generate/v0</code>, <code>/api/audit/analyze</code>를 제공합니다.</li>
+          <li>Agent Orchestrator는 분석, 추천, 검증, repair, 생성 job을 단계별로 연결합니다.</li>
+          <li>Tools and Models는 sharp, OpenAI Responses API, v0 API, Playwright로 실제 처리를 수행합니다.</li>
+          <li>Runtime Artifacts는 각 단계의 결과를 저장해 다음 단계 입력과 provenance로 사용합니다.</li>
         </ul>
       </div>
       <div class="slide-no">05</div>
     </section>
 
     <section class="slide" id="slide-6">
-      <h2>전체 시스템 파이프라인</h2>
+      <h2>전체 시스템 파이프라인: 6단계 실행 흐름</h2>
       <div class="pipeline-wide">
         <div class="pipeline-node">
           <div class="step">01 입력</div>
@@ -742,17 +793,17 @@
         <div class="pipeline-node">
           <div class="step">03 계획</div>
           <div class="title">Recipe 순위화</div>
-          <div class="body">조합 후보 · 일관성 기준 정렬 · 출처 수 동률 기준</div>
+          <div class="body">여러 레퍼런스 facet 조합 · coherence 기준 추천</div>
         </div>
         <div class="pipeline-node">
           <div class="step">04 검증</div>
           <div class="title">IntentSpec 점검</div>
-          <div class="body">대비 · 밀도 · 커버리지 · 출처 · 소스 조화도</div>
+          <div class="body">recipe 정규화 · 대비/밀도/커버리지 · repair plan</div>
         </div>
         <div class="pipeline-node">
           <div class="step">05 생성</div>
           <div class="title">React + Tailwind</div>
-          <div class="body">v0 동기 생성 · 작업 상태 polling · 생성 파일</div>
+          <div class="body">v0-mini 생성 · generation job · 작업 상태 polling</div>
         </div>
         <div class="pipeline-node">
           <div class="step">06 확인</div>
@@ -766,9 +817,10 @@
         </thead>
         <tbody>
           <tr><td><code>ReferenceAsset</code></td><td>업로드 API</td><td>이미지 data URL · 메타데이터</td></tr>
-          <tr><td><code>FacetPack</code></td><td>facet 추출</td><td>recipe 추천</td></tr>
-          <tr><td><code>IntentSpec</code></td><td>recipe 생성</td><td>일관성 평가 · 생성 프롬프트</td></tr>
-          <tr><td><code>GeneratedCode</code></td><td>v0 작업</td><td>미리보기 산출물 · 감사 분석</td></tr>
+          <tr><td><code>FacetPack</code></td><td>rule-based + LLM 분석</td><td>recipe 추천 · source 선택</td></tr>
+          <tr><td><code>IntentSpec</code></td><td>recipe 정규화</td><td>coherence 평가 · 생성 프롬프트</td></tr>
+          <tr><td><code>GeneratedCode</code></td><td>v0 generation job</td><td>preview artifact · audit 분석</td></tr>
+          <tr><td><code>AuditReport</code></td><td>OpenAI audit</td><td>IntentSpec 반영도 · diff · provenance 확인</td></tr>
         </tbody>
       </table>
       <div class="slide-no">06</div>
@@ -778,7 +830,7 @@
       <h2>사용자 시나리오: 화면 조작과 내부 처리</h2>
       <div class="scenario-flow">
         <h3>사용자 시나리오 한 줄 흐름</h3>
-        <div class="scenario-subtitle">화면에서는 단순한 업로드처럼 보이지만, 내부에서는 분석과 생성, 검증이 단계적으로 이어집니다.</div>
+        <div class="scenario-subtitle">화면에서는 단순한 업로드처럼 보이지만, 내부에서는 분석, 추천, 검증, 생성, 감사가 단계적으로 이어집니다.</div>
         <div class="scenario-road">
           <div class="scenario-step">
             <div class="step-no">01</div>
@@ -788,7 +840,7 @@
           <div class="scenario-step">
             <div class="step-no">02</div>
             <strong>웹 요청</strong>
-            <p><code>/api/references/upload</code>와 <code>/api/facets/extract</code>를 순서대로 호출합니다.</p>
+            <p><code>/api/references/upload</code> → <code>/api/facets/extract</code> → <code>/api/intents/create</code> 순서로 상태를 만듭니다.</p>
           </div>
           <div class="scenario-step">
             <div class="step-no">03</div>
@@ -798,17 +850,17 @@
           <div class="scenario-step">
             <div class="step-no">04</div>
             <strong>의도 정규화</strong>
-            <p><code>IntentSpec</code>으로 조합을 정리하고 coherence를 먼저 점검합니다.</p>
+            <p><code>/api/intents/evaluate</code>가 <code>IntentSpec</code>의 coherence와 repair plan을 점검합니다.</p>
           </div>
           <div class="scenario-step">
             <div class="step-no">05</div>
             <strong>코드 생성</strong>
-            <p><code>/api/generate/v0</code>가 React + Tailwind UI를 만듭니다.</p>
+            <p><code>/api/generate/v0</code>가 generation job을 만들고 v0로 React + Tailwind UI를 생성합니다.</p>
           </div>
           <div class="scenario-step">
             <div class="step-no">06</div>
             <strong>감사 확인</strong>
-            <p><code>GeneratedCode</code>와 <code>AuditReport</code>로 결과와 출처를 확인합니다.</p>
+            <p><code>/api/audit/analyze</code>가 <code>GeneratedCode</code>와 <code>AuditReport</code>를 연결합니다.</p>
           </div>
         </div>
         <div class="scenario-panels">
@@ -823,16 +875,17 @@
           <div class="scenario-panel">
             <h4>내부 처리</h4>
             <ul>
-              <li><code>sharp</code>와 OpenAI가 facet을 분담</li>
+              <li><code>sharp</code>는 이미지 픽셀 기반 색상을 추출</li>
+              <li>OpenAI는 facet 분석, coherence judge, audit을 담당</li>
+              <li>v0는 실제 React + Tailwind 코드를 생성</li>
               <li>중간 산출물은 <code>ReferenceAsset</code> → <code>FacetPack</code> → <code>IntentSpec</code> → <code>GeneratedCode</code> → <code>AuditReport</code>로 연결</li>
-              <li>생성 전에는 일관성, 생성 후에는 출처 추적을 확인</li>
             </ul>
           </div>
           <div class="scenario-panel">
             <h4>핵심 메시지</h4>
             <ul>
               <li>화면은 단순</li>
-              <li>내부는 분석 → 계획 → 생성 → 감사</li>
+              <li>내부는 분석 → 추천 → 검증/repair → 생성 → 감사</li>
               <li>결과보다 과정이 추적 가능하도록 설계</li>
             </ul>
           </div>
