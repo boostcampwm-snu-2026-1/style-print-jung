@@ -1,0 +1,843 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>StylePrint System Presentation</title>
+  <style>
+    * { box-sizing: border-box; }
+    :root {
+      --ink: #111827;
+      --muted: #64748b;
+      --line: #dbe2ea;
+      --page: #f6f7fb;
+      --panel: #ffffff;
+      --dark: #151826;
+      --accent: #ff5c7a;
+      --accent-strong: #ff4267;
+      --blue: #2563eb;
+      --green: #10b981;
+      --amber: #f59e0b;
+    }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background: var(--page);
+      color: #1f2937;
+      font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+      font-size: 16px;
+      line-height: 1.55;
+    }
+    .deck {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 28px;
+    }
+    .slide {
+      position: relative;
+      min-height: 720px;
+      margin: 0 0 28px;
+      padding: 44px 52px;
+      overflow: hidden;
+      border: 1px solid #e5e7eb;
+      background: var(--panel);
+      box-shadow: 0 18px 45px rgba(15, 23, 42, .08);
+    }
+    .cover {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      color: #fff;
+      background: var(--dark);
+    }
+    .cover-badge,
+    .kicker {
+      width: fit-content;
+      padding: 5px 12px;
+      border: 1px solid rgba(255, 255, 255, .25);
+      border-radius: 999px;
+      color: #cbd5e1;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+    .kicker {
+      border-color: #e5e7eb;
+      color: var(--muted);
+      background: #f8fafc;
+    }
+    .cover h1 {
+      max-width: 920px;
+      margin: 28px 0 16px;
+      font-size: 58px;
+      line-height: 1.08;
+      letter-spacing: 0;
+    }
+    .cover h1 span { color: var(--accent); }
+    .cover p {
+      max-width: 760px;
+      color: #cbd5e1;
+      font-size: 19px;
+    }
+    .cover-points {
+      display: grid;
+      gap: 10px;
+      max-width: 760px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      color: #cbd5e1;
+      font-size: 19px;
+    }
+    .cover-meta {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-top: 28px;
+    }
+    .cover-meta span {
+      padding: 8px 12px;
+      border: 1px solid rgba(255, 255, 255, .16);
+      border-radius: 8px;
+      color: #e5e7eb;
+      background: rgba(255, 255, 255, .06);
+      font-size: 13px;
+    }
+    h2 {
+      margin: 16px 0 18px;
+      padding-bottom: 10px;
+      border-bottom: 3px solid var(--accent);
+      color: var(--ink);
+      font-size: 30px;
+      line-height: 1.25;
+      letter-spacing: 0;
+    }
+    h3 {
+      margin: 22px 0 10px;
+      color: #334155;
+      font-size: 17px;
+    }
+    p { margin: 0 0 12px; }
+    ul { margin: 8px 0 0; padding-left: 18px; }
+    li { margin: 5px 0; }
+    code {
+      padding: 1px 5px;
+      border-radius: 5px;
+      background: #f1f5f9;
+      color: #0f172a;
+      font-size: .92em;
+    }
+    .slide-no {
+      position: absolute;
+      right: 24px;
+      bottom: 18px;
+      color: #94a3b8;
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .metric-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+      margin: 20px 0 22px;
+    }
+    .metric {
+      min-height: 126px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 16px;
+      background: #fff;
+    }
+    .metric.highlight {
+      border-color: var(--dark);
+      background: var(--dark);
+      color: #fff;
+    }
+    .metric-label {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+    .highlight .metric-label { color: #cbd5e1; }
+    .metric-value {
+      margin-top: 5px;
+      color: var(--accent-strong);
+      font-size: 28px;
+      font-weight: 900;
+      line-height: 1.15;
+    }
+    .metric-desc {
+      margin-top: 7px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+    .highlight .metric-desc { color: #cbd5e1; }
+    .summary-box,
+    .insight-box,
+    .warning {
+      margin: 16px 0;
+      padding: 15px 18px;
+      border-left: 4px solid var(--blue);
+      border-radius: 0 8px 8px 0;
+      background: #eff6ff;
+      font-size: 15px;
+    }
+    .insight-box {
+      border-left-color: var(--green);
+      background: #ecfdf5;
+    }
+    .warning {
+      border-left-color: var(--amber);
+      background: #fffbeb;
+    }
+    .two-col {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 24px;
+      align-items: start;
+    }
+    .three-col {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+    }
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 18px;
+      background: #fff;
+    }
+    .card.dark {
+      border-color: var(--dark);
+      background: var(--dark);
+      color: #fff;
+    }
+    .card h3 { margin-top: 0; }
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      width: fit-content;
+      margin: 0 0 9px;
+      padding: 3px 9px;
+      border-radius: 999px;
+      background: #ffe6eb;
+      color: #be123c;
+      font-size: 12px;
+      font-weight: 800;
+    }
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(130px, 1fr));
+      gap: 10px;
+      margin: 18px 0 16px;
+    }
+    .flow-step {
+      min-height: 142px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px;
+      background: #f8fafc;
+    }
+    .flow-code {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 28px;
+      height: 28px;
+      margin-bottom: 9px;
+      border-radius: 999px;
+      background: var(--accent);
+      color: #fff;
+      font-size: 12px;
+      font-weight: 900;
+    }
+    .flow-title {
+      color: var(--ink);
+      font-weight: 900;
+      line-height: 1.35;
+    }
+    .flow-copy {
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+    .timeline {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      font-size: 14px;
+    }
+    .timeline th {
+      padding: 10px 12px;
+      background: var(--dark);
+      color: #fff;
+      text-align: left;
+    }
+    .timeline td {
+      padding: 11px 12px;
+      border-bottom: 1px solid #e5e7eb;
+      vertical-align: top;
+    }
+    .timeline tr:nth-child(even) td { background: #f8fafc; }
+    .diagram {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 14px;
+      margin-top: 18px;
+    }
+    .diagram-col {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .node {
+      min-height: 76px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px;
+      background: #fff;
+    }
+    .node.strong {
+      border-color: var(--dark);
+      background: var(--dark);
+      color: #fff;
+    }
+    .node .name {
+      font-weight: 900;
+      color: inherit;
+    }
+    .node .desc {
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .node.strong .desc { color: #cbd5e1; }
+    .arrow {
+      align-self: center;
+      color: var(--accent-strong);
+      font-weight: 900;
+    }
+    .screenshot-frame {
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #f8fafc;
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .5);
+    }
+    .screenshot-frame img {
+      display: block;
+      width: 100%;
+      height: 350px;
+      object-fit: cover;
+      object-position: top left;
+    }
+    .mock-app {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+      background: #fff;
+    }
+    .mock-header {
+      display: flex;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 14px 16px;
+      border-bottom: 1px solid #e5e7eb;
+      background: #fff;
+    }
+    .mock-title { font-size: 18px; font-weight: 900; }
+    .mock-subtitle { color: var(--muted); font-size: 12px; }
+    .mock-steps {
+      display: flex;
+      gap: 8px;
+      padding: 10px 16px;
+      border-bottom: 1px solid #e5e7eb;
+      background: #f8fafc;
+    }
+    .mock-step {
+      padding: 7px 10px;
+      border-radius: 7px;
+      background: #fff;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+    }
+    .mock-step.active {
+      background: var(--dark);
+      color: #fff;
+    }
+    .mock-body {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      padding: 16px;
+    }
+    .mock-panel {
+      min-height: 180px;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      padding: 14px;
+      background: #fff;
+    }
+    .mock-line {
+      height: 9px;
+      margin: 9px 0;
+      border-radius: 99px;
+      background: #e5e7eb;
+    }
+    .mock-line.short { width: 55%; }
+    .mock-line.medium { width: 78%; }
+    .mock-swatch {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 6px;
+      margin-top: 14px;
+    }
+    .mock-swatch span {
+      height: 30px;
+      border-radius: 7px;
+      border: 1px solid rgba(15, 23, 42, .12);
+    }
+    .compact-list {
+      display: grid;
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .compact-row {
+      display: grid;
+      grid-template-columns: 112px 1fr;
+      gap: 10px;
+      padding: 9px 10px;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      background: #fff;
+      font-size: 14px;
+    }
+    .compact-row b { color: var(--ink); }
+    @media (max-width: 900px) {
+      .deck { padding: 12px; }
+      .slide { min-height: auto; padding: 28px 20px 72px; }
+      .cover h1 { font-size: 38px; }
+      .metric-grid,
+      .two-col,
+      .three-col,
+      .diagram,
+      .flow,
+      .mock-body { grid-template-columns: 1fr; }
+      .screenshot-frame img { height: 260px; }
+    }
+    @media print {
+      body { background: #fff; }
+      .deck { max-width: none; padding: 0; }
+      .slide {
+        width: 100vw;
+        min-height: 100vh;
+        margin: 0;
+        border: 0;
+        box-shadow: none;
+        page-break-after: always;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="deck">
+    <section class="slide cover" id="slide-1">
+      <div class="cover-badge">STYLEPRINT SYSTEM PRESENTATION</div>
+      <h1>Reference Screenshot에서<br><span>React + Tailwind UI</span>까지</h1>
+      <ul class="cover-points">
+        <li>Reference screenshot → 디자인 facet 추출</li>
+        <li>여러 reference → IntentSpec 조합</li>
+        <li>React + Tailwind UI code → preview · audit</li>
+      </ul>
+      <div class="cover-meta">
+        <span>5분 발표용</span>
+        <span>Demo → Architecture → Agent Workflow</span>
+        <span>Vite React + Fastify + OpenAI + v0</span>
+      </div>
+      <div class="slide-no">01</div>
+    </section>
+
+    <section class="slide" id="slide-2">
+      <div class="kicker">0:00-0:30 · Opening</div>
+      <h2>문제 정의: UI 스타일 구현의 병목</h2>
+      <div class="metric-grid">
+        <div class="metric highlight">
+          <div class="metric-label">Problem</div>
+          <div class="metric-value">분석이 느림</div>
+          <div class="metric-desc">색상 · 글꼴 · 여백 · 컴포넌트 규칙 수동 추정</div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">Problem</div>
+          <div class="metric-value">조합이 어려움</div>
+          <div class="metric-desc">서로 다른 reference 조합 시 스타일 충돌 · 출처 추적 공백</div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">Solution</div>
+          <div class="metric-value">Agent Workflow</div>
+          <div class="metric-desc">추출 · 조합 · 검증 · 생성 · audit 자동화</div>
+        </div>
+      </div>
+      <div class="summary-box">
+        <strong>서비스 핵심</strong>
+        <ul>
+          <li>UI reference screenshot → <b>IntentSpec</b> → React + Tailwind code</li>
+          <li>Facet provenance · coherence check · audit loop</li>
+        </ul>
+      </div>
+      <div class="slide-no">02</div>
+    </section>
+
+    <section class="slide" id="slide-3">
+      <div class="kicker">0:30-2:00 · Service Demo</div>
+      <h2>데모 시나리오: 레퍼런스 업로드부터 결과 preview까지</h2>
+      <div class="flow">
+        <div class="flow-step">
+          <div class="flow-code">1</div>
+          <div class="flow-title">Upload References</div>
+          <div class="flow-copy">UI screenshot 2-3장</div>
+        </div>
+        <div class="flow-step">
+          <div class="flow-code">2</div>
+          <div class="flow-title">Extract Facets</div>
+          <div class="flow-copy">color · typography · layout · spacing · component style</div>
+        </div>
+        <div class="flow-step">
+          <div class="flow-code">3</div>
+          <div class="flow-title">Recipe Builder</div>
+          <div class="flow-copy">recommended recipe · manual facet source</div>
+        </div>
+        <div class="flow-step">
+          <div class="flow-code">4</div>
+          <div class="flow-title">Coherence Check</div>
+          <div class="flow-copy">contrast · density · spacing mismatch</div>
+        </div>
+        <div class="flow-step">
+          <div class="flow-code">5</div>
+          <div class="flow-title">Generate & Audit</div>
+          <div class="flow-copy">preview · code · audit · provenance</div>
+        </div>
+      </div>
+      <div class="two-col">
+        <div class="mock-app">
+          <div class="mock-header">
+            <div>
+              <div class="mock-title">UI Facet Mixer</div>
+              <div class="mock-subtitle">Extract, mix, and generate UI designs</div>
+            </div>
+            <span class="tag">MVP v0.1</span>
+          </div>
+          <div class="mock-steps">
+            <span class="mock-step active">1. Upload & Extract</span>
+            <span class="mock-step">2. Recipe Builder</span>
+            <span class="mock-step">3. Generate & Audit</span>
+          </div>
+          <div class="mock-body">
+            <div class="mock-panel">
+              <b>Reference Assets</b>
+              <div class="mock-line medium"></div>
+              <div class="mock-line short"></div>
+              <div class="mock-swatch">
+                <span style="background:#6701b7"></span>
+                <span style="background:#e5b334"></span>
+                <span style="background:#c090a3"></span>
+                <span style="background:#ece4e5"></span>
+                <span style="background:#1d1b20"></span>
+              </div>
+            </div>
+            <div class="mock-panel">
+              <b>Extracted Facets</b>
+              <div class="mock-line"></div>
+              <div class="mock-line medium"></div>
+              <div class="mock-line short"></div>
+              <div class="insight-box" style="margin-top:14px;">color · typography · layout · spacing · component style</div>
+            </div>
+          </div>
+        </div>
+        <div>
+          <h3>데모 핵심 장면</h3>
+          <div class="compact-list">
+            <div class="compact-row"><b>입력</b><span>디자인 reference 2-3장 업로드</span></div>
+            <div class="compact-row"><b>처리</b><span>Extract Facets 클릭 후 token과 mood keyword 확인</span></div>
+            <div class="compact-row"><b>선택</b><span>Recommended Recipe 선택 또는 facet별 source 수동 지정</span></div>
+            <div class="compact-row"><b>검증</b><span>Coherence Score, conflict, repair plan 확인</span></div>
+            <div class="compact-row"><b>결과</b><span>Generate UI 후 preview와 audit/provenance 확인</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="slide-no">03</div>
+    </section>
+
+    <section class="slide" id="slide-4">
+      <div class="kicker">0:30-2:00 · Demo Result</div>
+      <h2>최종 결과: Preview · Code · Audit</h2>
+      <div class="two-col">
+        <div>
+          <div class="screenshot-frame">
+            <img src="../../apps/web/public/generated-previews/EeKfazsgeYwTqpwbQvTVu/screenshot.png" alt="Generated UI preview screenshot">
+          </div>
+          <div class="insight-box">
+            <strong>결과 예시</strong>
+            <ul>
+              <li><code>/generated-previews/:id/index.html</code> artifact</li>
+              <li>Preview iframe + screenshot snapshot</li>
+            </ul>
+          </div>
+        </div>
+        <div>
+          <h3>기존 방식 대비 편한 점</h3>
+          <div class="metric-grid" style="grid-template-columns:1fr;">
+            <div class="metric">
+              <div class="metric-label">Before</div>
+              <div class="metric-value">수동 정리</div>
+              <div class="metric-desc">색상 · 폰트 크기 · 여백 · 카드 스타일 직접 추정</div>
+            </div>
+            <div class="metric highlight">
+              <div class="metric-label">After</div>
+              <div class="metric-value">IntentSpec</div>
+              <div class="metric-desc">reference별 facet 구조화 · provenance 추적</div>
+            </div>
+            <div class="metric">
+              <div class="metric-label">After</div>
+              <div class="metric-value">Audit Loop</div>
+              <div class="metric-desc">IntentSpec vs generated code diff · provenance 검토</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="slide-no">04</div>
+    </section>
+
+    <section class="slide" id="slide-5">
+      <div class="kicker">2:00-3:00 · Architecture</div>
+      <h2>시스템 아키텍처: 요청이 결과물이 되는 흐름</h2>
+      <div class="diagram">
+        <div class="diagram-col">
+          <div class="node strong">
+            <div class="name">User</div>
+            <div class="desc">reference upload, recipe 선택, generation prompt 입력</div>
+          </div>
+          <div class="arrow">↓</div>
+          <div class="node">
+            <div class="name">Frontend</div>
+            <div class="desc">Vite React · 단계형 UI · preview iframe · audit table</div>
+          </div>
+        </div>
+        <div class="diagram-col">
+          <div class="node strong">
+            <div class="name">Fastify API</div>
+            <div class="desc">/api/references · /api/facets · /api/intents · /api/generate · /api/audit</div>
+          </div>
+          <div class="arrow">↓</div>
+          <div class="node">
+            <div class="name">Agent Orchestrator</div>
+            <div class="desc">facet extraction, recipe recommendation, coherence evaluation, repair, generation job</div>
+          </div>
+        </div>
+        <div class="diagram-col">
+          <div class="node strong">
+            <div class="name">Tools / Models</div>
+            <div class="desc">sharp color extraction · OpenAI facet/audit/coherence · v0 code generation</div>
+          </div>
+          <div class="arrow">↓</div>
+          <div class="node">
+            <div class="name">Runtime Artifacts</div>
+            <div class="desc">data/*.json · public/uploads · generated preview · screenshot</div>
+          </div>
+        </div>
+      </div>
+      <div class="summary-box">
+        <strong>핵심 구조</strong>
+        <ul>
+          <li>Frontend: 단계형 UI · preview iframe · audit table</li>
+          <li>Backend: typed API · Agent workflow execution</li>
+          <li>Shared contract: <code>packages/shared/src/types.ts</code></li>
+          <li>MVP storage: <code>data/*.json</code> · <code>public/uploads</code> · production DB/object storage 후보</li>
+        </ul>
+      </div>
+      <div class="slide-no">05</div>
+    </section>
+
+    <section class="slide" id="slide-6">
+      <div class="kicker">2:00-3:00 · Tech Stack</div>
+      <h2>기술 스택: 빠른 프로토타입과 검증 루프 중심</h2>
+      <div class="three-col">
+        <div class="card">
+          <span class="tag">Frontend</span>
+          <h3>React + Vite + TypeScript</h3>
+          <ul>
+            <li>Upload · Recipe Builder · Generate & Audit UI</li>
+            <li><code>Radix UI</code> · <code>lucide-react</code> · <code>Sandpack</code></li>
+          </ul>
+        </div>
+        <div class="card dark">
+          <span class="tag">Backend</span>
+          <h3 style="color:#fff;">Fastify + TypeScript</h3>
+          <ul>
+            <li>multipart upload · CORS · preview artifact serving</li>
+            <li>generation job polling · <code style="background:#23283b;color:#fff;">/api/...</code> route compatibility</li>
+          </ul>
+        </div>
+        <div class="card">
+          <span class="tag">AI / Tools</span>
+          <h3>OpenAI + v0 + sharp</h3>
+          <ul>
+            <li>OpenAI: facet analysis · coherence judge · audit</li>
+            <li>v0: React + Tailwind code generation</li>
+            <li><code>sharp</code>: pixel-based color token extraction</li>
+          </ul>
+        </div>
+      </div>
+      <h3>주요 API 흐름</h3>
+      <table class="timeline">
+        <thead>
+          <tr><th>Endpoint</th><th>역할</th><th>결과</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>/api/references/upload</code></td><td>reference 이미지 저장</td><td>metadata와 upload URL</td></tr>
+          <tr><td><code>/api/facets/extract</code></td><td>색상 + LLM 기반 디자인 facet 추출</td><td>FacetPack</td></tr>
+          <tr><td><code>/api/intents/create</code></td><td>선택한 facet 조합 정규화</td><td>IntentSpec</td></tr>
+          <tr><td><code>/api/intents/evaluate</code></td><td>충돌, coherence, repair 평가</td><td>Conflict + RepairPlan</td></tr>
+          <tr><td><code>/api/generate/v0</code></td><td>비동기 UI 코드 생성</td><td>GeneratedCode + previewUrl</td></tr>
+          <tr><td><code>/api/audit/analyze</code></td><td>생성 코드와 IntentSpec 비교</td><td>FacetDiff + Provenance</td></tr>
+        </tbody>
+      </table>
+      <div class="slide-no">06</div>
+    </section>
+
+    <section class="slide" id="slide-7">
+      <div class="kicker">3:00-4:20 · Agent Workflow</div>
+      <h2>Agent Workflow: Planner → Tools → Validator → Response</h2>
+      <div class="flow">
+        <div class="flow-step">
+          <div class="flow-code">P</div>
+          <div class="flow-title">Planner</div>
+          <div class="flow-copy">reference + generation goal → facet plan</div>
+        </div>
+        <div class="flow-step">
+          <div class="flow-code">E1</div>
+          <div class="flow-title">Extractor</div>
+          <div class="flow-copy">sharp/OpenAI → design tokens</div>
+        </div>
+        <div class="flow-step">
+          <div class="flow-code">E2</div>
+          <div class="flow-title">Recipe Executor</div>
+          <div class="flow-copy">candidates + coherence ranking</div>
+        </div>
+        <div class="flow-step">
+          <div class="flow-code">V</div>
+          <div class="flow-title">Validator</div>
+          <div class="flow-copy">contrast/density/spacing rules + repair</div>
+        </div>
+        <div class="flow-step">
+          <div class="flow-code">G</div>
+          <div class="flow-title">Generator / Auditor</div>
+          <div class="flow-copy">v0 code generation + OpenAI audit</div>
+        </div>
+      </div>
+      <div class="two-col">
+        <div class="summary-box">
+          <strong>데모 연결</strong>
+          <ul>
+            <li>reference upload → facet extraction plan</li>
+            <li>color extraction + LLM facet analysis</li>
+            <li>recipe selection → coherence score + repair</li>
+          </ul>
+        </div>
+        <div class="insight-box">
+          <strong>Agent 핵심 지점</strong>
+          <ul>
+            <li>단계형 workflow · single LLM call 아님</li>
+            <li>중간 산출물: <code>FacetPack</code> · <code>IntentSpec</code> · <code>RepairPlan</code> · <code>AuditReport</code></li>
+            <li>pre-generation validation + post-generation audit</li>
+          </ul>
+        </div>
+      </div>
+      <div class="slide-no">07</div>
+    </section>
+
+    <section class="slide" id="slide-8">
+      <div class="kicker">4:20-5:00 · Wrap-up</div>
+      <h2>차별점과 향후 개선</h2>
+      <div class="two-col">
+        <div>
+          <h3>이번 프로젝트의 차별점</h3>
+          <div class="compact-list">
+            <div class="compact-row"><b>Facet 단위</b><span>color · typography · layout · spacing · component style 분리 조합</span></div>
+            <div class="compact-row"><b>출처 추적</b><span>generated facet → source reference provenance</span></div>
+            <div class="compact-row"><b>사전 검증</b><span>contrast · spacing mismatch · repair plan</span></div>
+            <div class="compact-row"><b>사후 Audit</b><span>IntentSpec 반영도 · generated code 재분석</span></div>
+          </div>
+        </div>
+        <div>
+          <h3>향후 개선 계획</h3>
+          <div class="compact-list">
+            <div class="compact-row"><b>저장소</b><span>JSON/local upload를 PostgreSQL + S3/R2 계열 저장소로 전환</span></div>
+            <div class="compact-row"><b>사용자</b><span>인증과 사용자별 프로젝트/레퍼런스 분리</span></div>
+            <div class="compact-row"><b>품질</b><span>Storybook 또는 visual regression test로 생성 UI 검증 강화</span></div>
+            <div class="compact-row"><b>Agent</b><span>Planner, Validator, Generator를 더 명확한 multi-agent 구조로 분리</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="summary-box">
+        <strong>마무리 키워드</strong>
+        <ul>
+          <li>Natural language + reference screenshot</li>
+          <li>UI draft generation</li>
+          <li>pre/post validation loop</li>
+        </ul>
+      </div>
+      <div class="slide-no">08</div>
+    </section>
+
+    <section class="slide" id="slide-9">
+      <div class="kicker">5 Minute Run Sheet</div>
+      <h2>발표 순서와 시간 배분</h2>
+      <table class="timeline">
+        <thead>
+          <tr><th>구간</th><th>슬라이드</th><th>내용</th><th>핵심 포인트</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>0:00-0:30</td><td>1-2</td><td>프로젝트 소개 / 문제 정의</td><td>UI reference 분석 · 코드 변환 비용 → Agent workflow</td></tr>
+          <tr><td>0:30-2:00</td><td>3-4</td><td>서비스 데모</td><td>업로드 → 추출 → recipe → 검증 → 생성</td></tr>
+          <tr><td>2:00-3:00</td><td>5-6</td><td>아키텍처 / 기술 스택</td><td>Frontend · Fastify API · Agent Orchestrator · Tools · Artifacts</td></tr>
+          <tr><td>3:00-4:20</td><td>7</td><td>Agent workflow</td><td>Planner · Extractor · Validator · Generator/Auditor</td></tr>
+          <tr><td>4:20-5:00</td><td>8</td><td>차별점 / 향후 개선</td><td>Facet provenance · pre/post validation loop</td></tr>
+        </tbody>
+      </table>
+      <div class="warning">
+        <strong>영상 녹화 팁</strong>
+        <ul>
+          <li>코드 화면 최소화 · 실제 UI 조작 중심</li>
+          <li>아키텍처: 요청 → 컴포넌트 → 결과 흐름</li>
+          <li>Agent: 분석 → 계획 → 도구 실행 → 검증 → 응답</li>
+        </ul>
+      </div>
+      <div class="slide-no">09</div>
+    </section>
+  </main>
+  <script>
+    const slides = Array.from(document.querySelectorAll('.slide'));
+    function currentIndex() {
+      const middle = window.scrollY + window.innerHeight / 2;
+      return Math.max(0, slides.findIndex((slide) => {
+        const top = slide.offsetTop;
+        return middle >= top && middle < top + slide.offsetHeight;
+      }));
+    }
+    window.addEventListener('keydown', (event) => {
+      if (!['ArrowRight', 'ArrowDown', 'PageDown', ' ', 'ArrowLeft', 'ArrowUp', 'PageUp'].includes(event.key)) return;
+      const index = currentIndex();
+      const direction = ['ArrowLeft', 'ArrowUp', 'PageUp'].includes(event.key) ? -1 : 1;
+      const next = Math.min(slides.length - 1, Math.max(0, index + direction));
+      slides[next].scrollIntoView({ behavior: 'smooth', block: 'start' });
+      event.preventDefault();
+    });
+  </script>
+</body>
+</html>
