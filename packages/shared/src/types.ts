@@ -146,6 +146,73 @@ export type GenerationBrief = {
   variantCount: 1 | 2 | 3
 }
 
+// ============================================
+// Coherence Evaluation Types
+// ============================================
+
+export type CoherenceDimension =
+  | 'accessibility'
+  | 'visualConsistency'
+  | 'intentCoverage'
+  | 'provenanceCoverage'
+  | 'generationReadiness'
+
+export type CoherenceDimensionScores = Record<CoherenceDimension, number>
+
+export type CoherenceFinding = {
+  dimension: CoherenceDimension
+  severity: ConflictSeverity
+  message: string
+  rationale?: string
+  affectedKeys: string[]
+}
+
+export type CoherenceEvaluation = {
+  score: number
+  dimensions: CoherenceDimensionScores
+  findings: CoherenceFinding[]
+  evaluatorVersion: string
+  evaluatedAt: number
+}
+
+export type CoherenceJudgeMode = 'off' | 'shadow' | 'primary'
+
+export type CoherenceJudgePromptVersion = {
+  id: string
+  version: string
+  rubricHash: string
+  model?: string
+  createdAt: number
+}
+
+export type CoherenceJudgeResult = {
+  id: string
+  intentSpecId: string
+  mode: Exclude<CoherenceJudgeMode, 'off'>
+  promptVersion: CoherenceJudgePromptVersion
+  score: number
+  dimensions: CoherenceDimensionScores
+  findings: CoherenceFinding[]
+  confidence: number
+  createdAt: number
+}
+
+export type CoherenceFeedbackRating =
+  | 'accurate'
+  | 'tooHigh'
+  | 'tooLow'
+  | 'unclear'
+
+export type CoherenceFeedback = {
+  id: string
+  intentSpecId: string
+  judgeResultId?: string
+  rating: CoherenceFeedbackRating
+  expectedScore?: number
+  comment?: string
+  createdAt: number
+}
+
 export type IntentSpec = {
   id: string
   chosen: {
@@ -168,6 +235,7 @@ export type IntentSpec = {
   history: SpecChange[]
   createdAt: number
   coherenceScore?: number
+  coherence?: CoherenceEvaluation
   targetExport: IntentExportTarget
   generationBrief?: GenerationBrief
 }
@@ -329,6 +397,7 @@ export type CreateIntentResponse = {
 
 export type EvaluateRequest = {
   intentSpecId: string
+  judgeMode?: CoherenceJudgeMode
 }
 
 export type EvaluateResponse = {
@@ -336,6 +405,22 @@ export type EvaluateResponse = {
   conflicts?: ConflictCard[]
   repairs?: RepairPlan[]
   coherenceScore?: number
+  coherence?: CoherenceEvaluation
+  judgeResult?: CoherenceJudgeResult
+  error?: string
+}
+
+export type SubmitCoherenceFeedbackRequest = {
+  intentSpecId: string
+  judgeResultId?: string
+  rating: CoherenceFeedbackRating
+  expectedScore?: number
+  comment?: string
+}
+
+export type SubmitCoherenceFeedbackResponse = {
+  success: boolean
+  feedback?: CoherenceFeedback
   error?: string
 }
 
