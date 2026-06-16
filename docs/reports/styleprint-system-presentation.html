@@ -160,13 +160,155 @@
       font-weight: 900;
       line-height: 1.15;
     }
+    .metric.highlight .metric-value { color: #fff; }
     .metric-desc {
       margin-top: 7px;
       color: var(--muted);
       font-size: 13px;
       line-height: 1.45;
     }
-    .highlight .metric-desc { color: #cbd5e1; }
+    .highlight .metric-desc { color: var(--accent-strong); }
+    .summary-box.callout-dark,
+    .card.callout-dark,
+    .matrix-card.callout-dark {
+      border-color: var(--dark);
+      background: var(--dark);
+      color: #fff;
+    }
+    .summary-box.callout-dark strong,
+    .summary-box.callout-dark h3,
+    .card.callout-dark h3,
+    .matrix-card.callout-dark h3,
+    .matrix-card.callout-dark strong,
+    .scenario-flow.callout-dark h3,
+    .scenario-flow.callout-dark strong {
+      color: #fff;
+    }
+    .summary-box.callout-dark ul,
+    .summary-box.callout-dark li,
+    .card.callout-dark ul,
+    .card.callout-dark li,
+    .matrix-card.callout-dark ul,
+    .matrix-card.callout-dark li,
+    .summary-box.callout-dark .metric-desc,
+    .card.callout-dark .metric-desc,
+    .matrix-card.callout-dark .metric-desc,
+    .summary-box.callout-dark .body,
+    .card.callout-dark .body,
+    .matrix-card.callout-dark .body {
+      color: var(--accent-strong);
+    }
+    .summary-box.callout-dark code,
+    .card.callout-dark code,
+    .matrix-card.callout-dark code {
+      background: rgba(255, 255, 255, .14);
+      color: #fff;
+    }
+    .scenario-flow {
+      margin: 18px 0 10px;
+      padding: 20px 20px 18px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #f8fafc;
+      color: var(--ink);
+    }
+    .scenario-flow h3 {
+      margin: 0;
+      color: var(--ink);
+      font-size: 18px;
+    }
+    .scenario-flow .scenario-subtitle {
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+    .scenario-road {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 14px;
+    }
+    .scenario-step {
+      position: relative;
+      min-height: 108px;
+      padding: 14px 14px 12px;
+      border: 1px solid #dbe2ea;
+      border-radius: 8px;
+      background: #fff;
+    }
+    .scenario-step:not(:last-child)::after {
+      content: "→";
+      position: absolute;
+      top: 50%;
+      right: -13px;
+      transform: translateY(-50%);
+      color: #94a3b8;
+      font-size: 19px;
+      font-weight: 700;
+    }
+    .scenario-step .step-no {
+      color: var(--accent-strong);
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: .02em;
+    }
+    .scenario-step strong {
+      display: block;
+      margin-top: 8px;
+      color: var(--ink);
+      font-size: 15px;
+      line-height: 1.25;
+    }
+    .scenario-step p {
+      margin: 6px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+    .scenario-panels {
+      display: grid;
+      grid-template-columns: 1.05fr 1.3fr 1fr;
+      gap: 12px;
+      margin-top: 14px;
+    }
+    .scenario-panel {
+      min-height: 148px;
+      padding: 14px 16px;
+      border: 1px solid #dbe2ea;
+      border-radius: 8px;
+      background: #fff;
+    }
+    .scenario-panel h4 {
+      margin: 0 0 8px;
+      color: var(--ink);
+      font-size: 16px;
+    }
+    .scenario-panel ul {
+      margin: 0;
+      padding-left: 18px;
+    }
+    .scenario-panel li {
+      color: var(--muted);
+      line-height: 1.5;
+    }
+    .scenario-panel code {
+      background: #eef2f7;
+      color: #0f172a;
+    }
+    .scenario-foot {
+      margin-top: 12px;
+      padding: 12px 14px;
+      border-radius: 8px;
+      background: #eef2f7;
+      color: #334155;
+      font-size: 14px;
+      font-weight: 600;
+    }
+    .formula.dark {
+      border-color: var(--dark);
+      background: var(--dark);
+      color: #fff;
+    }
     .summary-box,
     .insight-box,
     .warning {
@@ -308,6 +450,14 @@
       padding: 13px;
       background: #f8fafc;
     }
+    .pipeline-node.emphasis {
+      border-color: var(--dark);
+      background: var(--dark);
+      color: #fff;
+    }
+    .pipeline-node.emphasis .body {
+      color: #cbd5e1;
+    }
     .pipeline-node .step {
       color: var(--accent-strong);
       font-size: 12px;
@@ -325,36 +475,6 @@
       color: var(--muted);
       font-size: 12px;
       line-height: 1.45;
-    }
-    .lane-grid {
-      display: grid;
-      grid-template-columns: 130px repeat(5, minmax(0, 1fr));
-      gap: 8px;
-      margin-top: 18px;
-      font-size: 13px;
-    }
-    .lane-label,
-    .lane-step {
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      padding: 10px;
-      background: #f8fafc;
-    }
-    .lane-label {
-      display: flex;
-      align-items: center;
-      color: var(--ink);
-      font-weight: 900;
-    }
-    .lane-step {
-      min-height: 78px;
-      color: var(--muted);
-      line-height: 1.4;
-    }
-    .lane-step b {
-      display: block;
-      margin-bottom: 4px;
-      color: var(--ink);
     }
     .matrix-grid {
       display: grid;
@@ -432,7 +552,6 @@
       .score-grid,
       .test-grid,
       .flow { grid-template-columns: 1fr; }
-      .lane-grid { grid-template-columns: 1fr; }
     }
     @media print {
       body { background: #fff; }
@@ -460,29 +579,30 @@
     </section>
 
     <section class="slide" id="slide-2">
-      <h2>문제 정의: UI 스타일 구현의 병목</h2>
+      <h2>문제 정의: AI 개발에서 디자인 판단과 추적 가능성</h2>
       <div class="metric-grid">
         <div class="metric highlight">
-          <div class="metric-label">문제</div>
-          <div class="metric-value">분석이 느림</div>
-          <div class="metric-desc">색상 · 글꼴 · 여백 · 컴포넌트 규칙 수동 추정</div>
+          <div class="metric-label">배경</div>
+          <div class="metric-value">1인 AI 개발</div>
+          <div class="metric-desc">기획 · 디자인 · 개발 역할 통합 · 바이브코딩 확산</div>
         </div>
-        <div class="metric">
-          <div class="metric-label">문제</div>
-          <div class="metric-value">조합이 어려움</div>
-          <div class="metric-desc">서로 다른 reference 조합 시 스타일 충돌 · 출처 추적 공백</div>
+        <div class="metric highlight">
+          <div class="metric-label">핵심 문제</div>
+          <div class="metric-value">좋은 디자인 판단</div>
+          <div class="metric-desc">비전공자가 reference의 어떤 요소가 좋은지 해석하기 어려움</div>
         </div>
-        <div class="metric">
-          <div class="metric-label">해결 방향</div>
-          <div class="metric-value">Agent 워크플로</div>
-          <div class="metric-desc">추출 · 조합 · 검증 · 생성 · 감사 자동화</div>
+        <div class="metric highlight">
+          <div class="metric-label">추적 가능성</div>
+          <div class="metric-value">AI 적용 원리 불투명</div>
+          <div class="metric-desc">어떤 facet이 어떤 원리로 생성 UI에 반영됐는지 확인 어려움</div>
         </div>
       </div>
       <div class="summary-box">
-        <strong>서비스 핵심</strong>
+        <strong>StylePrint 접근</strong>
         <ul>
-          <li>UI 레퍼런스 스크린샷 → <b>IntentSpec</b> → React + Tailwind 코드</li>
-          <li>Facet 출처 추적 · 일관성 검증 · 감사 루프</li>
+          <li>UI 레퍼런스 스크린샷 → 디자인 facet 추출</li>
+          <li>사용자 조합 → <b>IntentSpec</b> 정규화</li>
+          <li>충돌 검증 → React + Tailwind 코드 생성 → 감사/출처 추적</li>
         </ul>
       </div>
       <div class="slide-no">02</div>
@@ -523,17 +643,17 @@
     <section class="slide" id="slide-4">
       <h2>최종 결과: 미리보기 · 코드 · 감사</h2>
       <div class="metric-grid">
-        <div class="metric">
+        <div class="metric highlight">
           <div class="metric-label">결과</div>
           <div class="metric-value">미리보기 URL</div>
           <div class="metric-desc"><code>/generated-previews/:id/index.html</code> 산출물</div>
         </div>
-        <div class="metric">
+        <div class="metric highlight">
           <div class="metric-label">결과</div>
           <div class="metric-value">코드 파일</div>
           <div class="metric-desc">React entry · TSX/JS/CSS · 선택된 UI 파일</div>
         </div>
-        <div class="metric">
+        <div class="metric highlight">
           <div class="metric-label">결과</div>
           <div class="metric-value">감사 리포트</div>
           <div class="metric-desc">IntentSpec 반영도 · diff · 출처 배지</div>
@@ -609,7 +729,7 @@
     <section class="slide" id="slide-6">
       <h2>전체 시스템 파이프라인</h2>
       <div class="pipeline-wide">
-        <div class="pipeline-node">
+        <div class="pipeline-node emphasis">
           <div class="step">01 입력</div>
           <div class="title">레퍼런스 업로드</div>
           <div class="body">PNG/JPEG/WebP/SVG · 최대 100MB · 업로드 메타데이터</div>
@@ -634,7 +754,7 @@
           <div class="title">React + Tailwind</div>
           <div class="body">v0 동기 생성 · 작업 상태 polling · 생성 파일</div>
         </div>
-        <div class="pipeline-node">
+        <div class="pipeline-node emphasis">
           <div class="step">06 확인</div>
           <div class="title">미리보기 + 감사</div>
           <div class="body">iframe 산출물 · 스크린샷 · 코드 감사 · 출처 배지</div>
@@ -656,31 +776,68 @@
 
     <section class="slide" id="slide-7">
       <h2>사용자 시나리오: 화면 조작과 내부 처리</h2>
-      <div class="lane-grid">
-        <div class="lane-label">사용자</div>
-        <div class="lane-step"><b>업로드</b>레퍼런스 이미지 선택</div>
-        <div class="lane-step"><b>추출</b>facet 확인</div>
-        <div class="lane-step"><b>Recipe</b>추천/수동 조합</div>
-        <div class="lane-step"><b>생성</b>프롬프트 · 변형 · 화면 계획</div>
-        <div class="lane-step"><b>검토</b>미리보기 · 코드 · 감사</div>
-        <div class="lane-label">웹</div>
-        <div class="lane-step"><b>POST</b><code>/api/references/upload</code></div>
-        <div class="lane-step"><b>POST</b><code>/api/facets/extract</code></div>
-        <div class="lane-step"><b>POST</b><code>/api/intents/create</code><br><code>/api/intents/evaluate</code></div>
-        <div class="lane-step"><b>POST</b><code>/api/generate/v0</code><br><code>GET /api/generate/jobs/:id</code></div>
-        <div class="lane-step"><b>POST</b><code>/api/audit/analyze</code></div>
-        <div class="lane-label">백엔드</div>
-        <div class="lane-step"><b>저장</b>업로드 파일 + 메타데이터</div>
-        <div class="lane-step"><b>구성</b>FacetPack + 분위기 키워드</div>
-        <div class="lane-step"><b>정규화</b>IntentSpec + 출처 정보</div>
-        <div class="lane-step"><b>기록</b>GeneratedCode + 미리보기 URL</div>
-        <div class="lane-step"><b>저장</b>AuditReport + 출처 배지</div>
-        <div class="lane-label">AI/도구</div>
-        <div class="lane-step"><b>파일</b>로컬 업로드 저장소</div>
-        <div class="lane-step"><b>sharp + OpenAI</b>색상 + 시각 facet</div>
-        <div class="lane-step"><b>규칙 + judge</b>점수 + 수정안</div>
-        <div class="lane-step"><b>v0 + esbuild</b>UI 코드 + 번들</div>
-        <div class="lane-step"><b>OpenAI + Playwright</b>감사 + 스크린샷</div>
+      <div class="scenario-flow">
+        <h3>사용자 시나리오 한 줄 흐름</h3>
+        <div class="scenario-subtitle">화면에서는 단순한 업로드처럼 보이지만, 내부에서는 분석과 생성, 검증이 단계적으로 이어집니다.</div>
+        <div class="scenario-road">
+          <div class="scenario-step">
+            <div class="step-no">01</div>
+            <strong>사용자 입력</strong>
+            <p>레퍼런스 이미지를 올리고 추천 recipe를 고릅니다.</p>
+          </div>
+          <div class="scenario-step">
+            <div class="step-no">02</div>
+            <strong>웹 요청</strong>
+            <p><code>/api/references/upload</code>와 <code>/api/facets/extract</code>를 순서대로 호출합니다.</p>
+          </div>
+          <div class="scenario-step">
+            <div class="step-no">03</div>
+            <strong>Facet 정리</strong>
+            <p><code>ReferenceAsset</code>와 <code>FacetPack</code>을 만들고 디자인 특징을 구조화합니다.</p>
+          </div>
+          <div class="scenario-step">
+            <div class="step-no">04</div>
+            <strong>Intent 정규화</strong>
+            <p><code>IntentSpec</code>으로 조합을 정리하고 coherence를 먼저 점검합니다.</p>
+          </div>
+          <div class="scenario-step">
+            <div class="step-no">05</div>
+            <strong>코드 생성</strong>
+            <p><code>/api/generate/v0</code>가 React + Tailwind UI를 만듭니다.</p>
+          </div>
+          <div class="scenario-step">
+            <div class="step-no">06</div>
+            <strong>감사 확인</strong>
+            <p><code>GeneratedCode</code>와 <code>AuditReport</code>로 결과와 출처를 확인합니다.</p>
+          </div>
+        </div>
+        <div class="scenario-panels">
+          <div class="scenario-panel">
+            <h4>사용자 관점</h4>
+            <ul>
+              <li>레퍼런스 업로드</li>
+              <li>추천 recipe 선택 또는 facet source 직접 조정</li>
+              <li>preview, code, audit를 순서대로 확인</li>
+            </ul>
+          </div>
+          <div class="scenario-panel">
+            <h4>내부 처리</h4>
+            <ul>
+              <li><code>sharp</code>와 OpenAI가 facet을 분담</li>
+              <li>중간 산출물은 <code>ReferenceAsset</code> → <code>FacetPack</code> → <code>IntentSpec</code> → <code>GeneratedCode</code> → <code>AuditReport</code>로 연결</li>
+              <li>생성 전에는 coherence, 생성 후에는 provenance를 확인</li>
+            </ul>
+          </div>
+          <div class="scenario-panel">
+            <h4>핵심 메시지</h4>
+            <ul>
+              <li>화면은 단순</li>
+              <li>내부는 분석 → 계획 → 생성 → 감사</li>
+              <li>결과보다 과정이 추적 가능하도록 설계</li>
+            </ul>
+          </div>
+        </div>
+        <div class="scenario-foot">한 장으로 보면, 사용자는 업로드와 확인만 하지만 시스템은 API와 tool을 거치며 단계별로 상태를 축적합니다.</div>
       </div>
       <div class="slide-no">07</div>
     </section>
@@ -799,7 +956,7 @@
           <div class="flow-copy">v0 생성 · 미리보기 산출물 · 감사 보고서</div>
         </div>
       </div>
-      <div class="summary-box">
+      <div class="summary-box callout-dark">
         <strong>연결 구조</strong>
         <ul>
           <li>프레임워크: 별도 LangGraph/LangChain 없이 Fastify route + typed artifacts</li>
@@ -813,7 +970,7 @@
 
     <section class="slide" id="slide-11">
       <h2>일관성 점수 로직: 규칙 기반 기준</h2>
-      <div class="formula">일관성 점수 = clamp(100 - Σ dimension 감점)</div>
+      <div class="formula dark">일관성 점수 = clamp(100 - Σ dimension 감점)</div>
       <div class="score-grid">
         <div class="score-card"><b>접근성</b>text/background &lt; 4.5:1 · primary/background &lt; 3:1</div>
         <div class="score-card"><b>시각 일관성</b>compact + body &lt; 14px · 간격/밀도 불일치</div>
@@ -846,15 +1003,15 @@
     <section class="slide" id="slide-12">
       <h2>LLM Judge 로직: 보조 평가</h2>
       <div class="pipeline-wide">
-        <div class="pipeline-node"><div class="step">1</div><div class="title">기준 평가</div><div class="body">규칙 finding · dimension score</div></div>
+        <div class="pipeline-node emphasis"><div class="step">1</div><div class="title">기준 평가</div><div class="body">규칙 finding · dimension score</div></div>
         <div class="pipeline-node"><div class="step">2</div><div class="title">프롬프트</div><div class="body">rubric · checklist · calibration anchor</div></div>
         <div class="pipeline-node"><div class="step">3</div><div class="title">OpenAI Judge</div><div class="body">ordinal rating · strict JSON</div></div>
         <div class="pipeline-node"><div class="step">4</div><div class="title">정규화</div><div class="body">rating + checklist → 점수</div></div>
         <div class="pipeline-node"><div class="step">5</div><div class="title">저장</div><div class="body">CoherenceJudgeResult</div></div>
-        <div class="pipeline-node"><div class="step">6</div><div class="title">피드백</div><div class="body">정확함 · 너무 높음 · 너무 낮음</div></div>
+        <div class="pipeline-node emphasis"><div class="step">6</div><div class="title">피드백</div><div class="body">정확함 · 너무 높음 · 너무 낮음</div></div>
       </div>
       <div class="matrix-grid">
-        <div class="matrix-card">
+        <div class="matrix-card callout-dark">
           <h3>Judge 프롬프트 가드레일</h3>
           <ul>
             <li>version: <code>coherence-judge-v2</code></li>
@@ -916,7 +1073,7 @@
           </ul>
         </div>
       </div>
-      <div class="summary-box">
+      <div class="summary-box callout-dark">
         <strong>검증 명령</strong>
         <ul>
           <li><code>npm run test</code>: web Vitest + API Vitest</li>
