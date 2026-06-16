@@ -1,5 +1,11 @@
 import type {
   AuditReport,
+  CoherenceEvaluation,
+  CoherenceFinding,
+  CoherenceJudgeCheck,
+  CoherenceJudgeDimensionRating,
+  CoherenceJudgeResult,
+  CoherenceJudgeRating,
   ComponentStyleFacetToken,
   IntentSpec,
   LayoutFacetToken,
@@ -15,6 +21,11 @@ import {
   CODE_AUDIT_INSTRUCTIONS,
   buildCodeAuditPrompt,
 } from './prompts/code-audit'
+import {
+  COHERENCE_JUDGE_INSTRUCTIONS,
+  COHERENCE_JUDGE_PROMPT_VERSION,
+  buildCoherenceJudgePrompt,
+} from './prompts/coherence-judge'
 
 type DesignFacetAnalysis = {
   typography: TypographyFacetToken['value']
@@ -39,14 +50,43 @@ type OpenAIResponse = {
 type OpenAIJSONOptions = {
   instructions?: string
   maxOutputTokens?: number
+  model?: string
+  temperature?: number
 }
+
+type CoherenceJudgePayload = Pick<
+  CoherenceJudgeResult,
+  | 'score'
+  | 'dimensions'
+  | 'findings'
+  | 'dimensionRatings'
+  | 'checklist'
+  | 'confidence'
+>
 
 const DEFAULT_JSON_INSTRUCTIONS =
   'Return JSON that exactly matches the supplied schema.'
 
+const coherenceDimensions: CoherenceEvaluation['findings'][number]['dimension'][] = [
+  'accessibility',
+  'visualConsistency',
+  'intentCoverage',
+  'provenanceCoverage',
+  'sourceHarmony',
+  'generationReadiness',
+]
+
+const ratingScores: Record<CoherenceJudgeRating, number> = {
+  strong: 100,
+  adequate: 82,
+  weak: 55,
+  fail: 20,
+}
+
 export async function analyzeDesignFacets(
   imageDataUrl: string,
-  colorPalette: Record<string, string>
+  colorPalette: Record<string, string>,
+  assetDimensions?: { width?: number; height?: number }
 ): Promise<DesignFacetAnalysis> {
   const analysis = await callOpenAIJSON<DesignFacetAnalysis>(
     'design_facet_analysis',
@@ -57,7 +97,7 @@ export async function analyzeDesignFacets(
         content: [
           {
             type: 'input_text',
-            text: buildFacetAnalysisPrompt({ colorPalette }),
+            text: buildFacetAnalysisPrompt({ colorPalette, assetDimensions }),
           },
           {
             type: 'input_image',
@@ -97,6 +137,41 @@ export async function auditGeneratedCodeWithOpenAI(
   return normalizeAuditFacets(audit)
 }
 
+export async function judgeIntentCoherenceWithOpenAI(
+  intentSpec: IntentSpec,
+  baseline: CoherenceEvaluation
+): Promise<Omit<CoherenceJudgeResult, 'id' | 'intentSpecId' | 'mode' | 'createdAt'>> {
+  const result = await callOpenAIJSON<CoherenceJudgePayload>(
+    'coherence_judge',
+    coherenceJudgeSchema,
+    [
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'input_text',
+            text: buildCoherenceJudgePrompt({ intentSpec, baseline }),
+          },
+        ],
+      },
+    ],
+    {
+      instructions: COHERENCE_JUDGE_INSTRUCTIONS,
+      maxOutputTokens: 2200,
+      model: config.openai.judgeModel,
+      temperature: 0,
+    }
+  )
+
+  return {
+    ...normalizeCoherenceJudgePayload(result),
+    promptVersion: {
+      ...COHERENCE_JUDGE_PROMPT_VERSION,
+      model: config.openai.judgeModel,
+    },
+  }
+}
+
 async function callOpenAIJSON<T>(
   schemaName: string,
   schema: Record<string, unknown>,
@@ -112,10 +187,11 @@ async function callOpenAIJSON<T>(
       Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      model: config.openai.model,
+      model: options.model || config.openai.model,
       instructions: options.instructions || DEFAULT_JSON_INSTRUCTIONS,
       input,
       max_output_tokens: options.maxOutputTokens || 1600,
+      ...(options.temperature !== undefined ? { temperature: options.temperature } : {}),
       text: {
         format: {
           type: 'json_schema',
@@ -186,6 +262,93 @@ function normalizeAuditFacets(
   }
 }
 
+function normalizeCoherenceJudgePayload(
+  result: CoherenceJudgePayload
+): Pick<
+  CoherenceJudgeResult,
+  'score' | 'dimensions' | 'findings' | 'dimensionRatings' | 'checklist' | 'confidence'
+> {
+  const dimensionRatings = normalizeDimensionRatings(result.dimensionRatings || [])
+  const checklist = normalizeCoherenceChecklist(result.checklist || [])
+  const dimensions = calculateJudgeDimensionScores(dimensionRatings, checklist)
+  const dimensionValues = Object.values(dimensions)
+
+  return {
+    findings: result.findings.slice(0, 12).map(normalizeCoherenceFinding),
+    dimensionRatings,
+    checklist,
+    dimensions,
+    score: clampScore(
+      dimensionValues.reduce((sum, value) => sum + value, 0) / dimensionValues.length
+    ),
+    confidence: Math.max(0, Math.min(1, result.confidence)),
+  }
+}
+
+function normalizeDimensionRatings(
+  ratings: CoherenceJudgeDimensionRating[]
+): CoherenceJudgeDimensionRating[] {
+  const byDimension = new Map(ratings.map((rating) => [rating.dimension, rating]))
+  return coherenceDimensions.map((dimension) => {
+    const rating = byDimension.get(dimension)
+    return {
+      dimension,
+      rating: normalizeJudgeRating(rating?.rating),
+      rationale: rating?.rationale || 'No dimension rationale returned.',
+      affectedKeys: rating?.affectedKeys || [],
+    }
+  })
+}
+
+function normalizeCoherenceChecklist(
+  checklist: CoherenceJudgeCheck[]
+): CoherenceJudgeCheck[] {
+  return checklist.slice(0, 20).map((check) => ({
+    id: check.id,
+    dimension: check.dimension,
+    met: Boolean(check.met),
+    rationale: check.rationale,
+    affectedKeys: check.affectedKeys || [],
+  }))
+}
+
+function normalizeJudgeRating(
+  rating: CoherenceJudgeRating | undefined
+): CoherenceJudgeRating {
+  if (rating === 'strong' || rating === 'adequate' || rating === 'weak' || rating === 'fail') {
+    return rating
+  }
+  return 'weak'
+}
+
+function calculateJudgeDimensionScores(
+  ratings: CoherenceJudgeDimensionRating[],
+  checklist: CoherenceJudgeCheck[]
+): CoherenceEvaluation['dimensions'] {
+  return coherenceDimensions.reduce((acc, dimension) => {
+    const rating = ratings.find((item) => item.dimension === dimension)?.rating || 'weak'
+    const unmetChecks = checklist.filter(
+      (check) => check.dimension === dimension && !check.met
+    ).length
+    acc[dimension] = clampScore(ratingScores[rating] - unmetChecks * 8)
+    return acc
+  }, {} as CoherenceEvaluation['dimensions'])
+}
+
+function normalizeCoherenceFinding(finding: CoherenceFinding): CoherenceFinding {
+  return {
+    dimension: finding.dimension,
+    severity: finding.severity,
+    message: finding.message,
+    rationale: finding.rationale,
+    affectedKeys: finding.affectedKeys || [],
+  }
+}
+
+function clampScore(score: number): number {
+  return Math.max(0, Math.min(100, Math.round(score)))
+}
+
 function dropNullValues<T extends Record<string, unknown>>(
   value: T | undefined
 ): T | undefined {
@@ -232,6 +395,104 @@ const componentStyleSchema = {
     radius: { type: 'string', enum: ['none', 'sm', 'md', 'lg', 'xl'] },
     shadow: { type: 'string', enum: ['none', 'sm', 'md', 'lg'] },
     border: { type: 'string', enum: ['none', 'subtle', 'strong'] },
+  },
+}
+
+const coherenceFindingSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['dimension', 'severity', 'message', 'rationale', 'affectedKeys'],
+  properties: {
+    dimension: {
+      type: 'string',
+      enum: [
+        'accessibility',
+        'visualConsistency',
+        'intentCoverage',
+        'provenanceCoverage',
+        'sourceHarmony',
+        'generationReadiness',
+      ],
+    },
+    severity: { type: 'string', enum: ['info', 'warn', 'error'] },
+    message: { type: 'string' },
+    rationale: { type: 'string' },
+    affectedKeys: {
+      type: 'array',
+      items: { type: 'string' },
+    },
+  },
+}
+
+const coherenceDimensionRatingSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['dimension', 'rating', 'rationale', 'affectedKeys'],
+  properties: {
+    dimension: {
+      type: 'string',
+      enum: [
+        'accessibility',
+        'visualConsistency',
+        'intentCoverage',
+        'provenanceCoverage',
+        'sourceHarmony',
+        'generationReadiness',
+      ],
+    },
+    rating: { type: 'string', enum: ['strong', 'adequate', 'weak', 'fail'] },
+    rationale: { type: 'string' },
+    affectedKeys: {
+      type: 'array',
+      items: { type: 'string' },
+    },
+  },
+}
+
+const coherenceChecklistSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['id', 'dimension', 'met', 'rationale', 'affectedKeys'],
+  properties: {
+    id: { type: 'string' },
+    dimension: {
+      type: 'string',
+      enum: [
+        'accessibility',
+        'visualConsistency',
+        'intentCoverage',
+        'provenanceCoverage',
+        'sourceHarmony',
+        'generationReadiness',
+      ],
+    },
+    met: { type: 'boolean' },
+    rationale: { type: 'string' },
+    affectedKeys: {
+      type: 'array',
+      items: { type: 'string' },
+    },
+  },
+}
+
+const coherenceJudgeSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['findings', 'dimensionRatings', 'checklist', 'confidence'],
+  properties: {
+    findings: {
+      type: 'array',
+      items: coherenceFindingSchema,
+    },
+    dimensionRatings: {
+      type: 'array',
+      items: coherenceDimensionRatingSchema,
+    },
+    checklist: {
+      type: 'array',
+      items: coherenceChecklistSchema,
+    },
+    confidence: { type: 'number' },
   },
 }
 

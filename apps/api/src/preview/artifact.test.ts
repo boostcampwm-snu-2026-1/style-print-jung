@@ -4,6 +4,10 @@ import { afterAll, afterEach, describe, expect, test } from 'vitest'
 import { config } from '../config'
 import { getIntentSpecs } from '../db'
 import { evaluateIntentSpec } from '../intent-evaluator'
+import {
+  COHERENCE_JUDGE_PROMPT_VERSION,
+  buildCoherenceJudgePrompt,
+} from '../prompts/coherence-judge'
 import { app } from '../server'
 import {
   readPreviewArtifactFile,
@@ -166,8 +170,106 @@ describe('intent evaluator', () => {
     } satisfies IntentSpec)
 
     expect(evaluated.coherenceScore).toBeLessThan(100)
+    expect(evaluated.coherence.score).toBe(evaluated.coherenceScore)
+    expect(evaluated.coherence.dimensions.accessibility).toBeLessThan(100)
     expect(evaluated.conflicts[0]?.type).toBe('contrast')
     expect(evaluated.repairs[0]?.changes[0]?.key).toBe('palette.text')
+  })
+
+  test('reports coverage gaps separately from legacy conflict cards', () => {
+    const evaluated = evaluateIntentSpec({
+      id: 'intent-coverage-test',
+      chosen: {},
+      normalized: {
+        palette: {
+          text: '#111111',
+          background: '#ffffff',
+          primary: '#005fcc',
+        } as Record<ColorRole, string>,
+      },
+      provenance: {},
+      conflicts: [],
+      repairs: [],
+      history: [],
+      createdAt: 1,
+      targetExport: {
+        format: 'react-tailwind',
+        label: 'React + Tailwind',
+        description: 'Test export target',
+      },
+      generationBrief: {
+        prompt: '',
+        screens: [],
+        variantCount: 1,
+      },
+    } satisfies IntentSpec)
+
+    expect(evaluated.conflicts).toEqual([])
+    expect(evaluated.coherence.dimensions.intentCoverage).toBeLessThan(100)
+    expect(evaluated.coherence.dimensions.provenanceCoverage).toBeLessThan(100)
+    expect(evaluated.coherence.dimensions.generationReadiness).toBeLessThan(100)
+  })
+})
+
+describe('coherence judge prompt', () => {
+  test('pins a prompt version and includes the baseline evaluation', () => {
+    const intentSpec = {
+      id: 'judge-prompt-test',
+      chosen: {},
+      normalized: {},
+      provenance: {},
+      conflicts: [],
+      repairs: [],
+      history: [],
+      createdAt: 1,
+      targetExport: {
+        format: 'react-tailwind',
+        label: 'React + Tailwind',
+        description: 'Test export target',
+      },
+    } satisfies IntentSpec
+    const baseline = evaluateIntentSpec(intentSpec).coherence
+    const prompt = buildCoherenceJudgePrompt({ intentSpec, baseline })
+
+    expect(COHERENCE_JUDGE_PROMPT_VERSION.id).toBe('coherence-judge-v2')
+    expect(COHERENCE_JUDGE_PROMPT_VERSION.rubricHash).toHaveLength(12)
+    expect(prompt).toContain('Rule findings')
+    expect(prompt).not.toContain('Rule-based baseline')
+    expect(prompt).toContain('Binary checklist')
+    expect(prompt).toContain('judge-prompt-test')
+  })
+})
+
+describe('/api/coherence/feedback', () => {
+  test('rejects incomplete feedback payloads', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/coherence/feedback',
+      payload: {
+        intentSpecId: 'missing-rating',
+      },
+    })
+
+    expect(response.statusCode).toBe(400)
+  })
+})
+
+describe('/api/generate/v0', () => {
+  test('rejects staged generation until the mode is implemented', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/generate/v0',
+      payload: {
+        intentSpecId: 'any-intent',
+        stepMode: 'staged',
+      },
+    })
+
+    expect(response.statusCode).toBe(400)
+    expect(response.json()).toEqual({
+      success: false,
+      error: 'Staged generation is not implemented yet',
+    })
   })
 })
 

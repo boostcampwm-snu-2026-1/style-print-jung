@@ -18,6 +18,8 @@
     "build:web": "vite build --config apps/web/vite.config.ts",
     "start": "tsx apps/api/src/server.ts",
     "smoke:deploy": "node scripts/smoke-deploy.mjs",
+    "regression:intents": "tsx scripts/intent-regression-report.ts",
+    "agreement:coherence": "tsx scripts/coherence-agreement-report.ts",
     "test": "vitest run --config apps/web/vitest.config.ts && vitest run --config apps/api/vitest.config.ts",
     "typecheck": "tsc -p apps/api/tsconfig.json && tsc -p apps/web/tsconfig.json",
     "lint": "npm run typecheck"

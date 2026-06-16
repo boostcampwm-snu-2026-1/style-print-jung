@@ -27,6 +27,7 @@ export const config = {
     apiUrl: process.env.OPENAI_API_URL || 'https://api.openai.com/v1/responses',
     apiKey: process.env.OPENAI_API_KEY || '',
     model: process.env.OPENAI_MODEL || 'gpt-4.1-mini',
+    judgeModel: process.env.OPENAI_JUDGE_MODEL || process.env.OPENAI_MODEL || 'gpt-4.1-mini',
   },
   v0: {
     apiUrl: process.env.V0_API_URL || 'https://api.v0.dev/v1/chats',

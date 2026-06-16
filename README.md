@@ -96,6 +96,7 @@ cp .env.local.example .env.local
 ```env
 OPENAI_API_KEY=sk-...
 OPENAI_MODEL=gpt-4.1-mini
+OPENAI_JUDGE_MODEL=gpt-4.1-mini
 V0_API_KEY=...
 V0_MODEL=v0-mini
 API_PORT=4000
@@ -103,20 +104,22 @@ WEB_ORIGIN=http://localhost:5173
 VITE_API_BASE_URL=
 ```
 
-`OPENAI_API_KEY`와 `V0_API_KEY`는 필수입니다. 누락되거나 API 호출이 실패하면 임의 데이터로 진행하지 않고 해당 API 요청이 실패합니다.
+`OPENAI_API_KEY`와 `V0_API_KEY`는 필수입니다. 누락되거나 API 호출이 실패하면 임의 데이터로 진행하지 않고 해당 API 요청이 실패합니다. `OPENAI_JUDGE_MODEL`은 coherence judge 전용 모델을 분리하고 싶을 때 사용하며, 없으면 `OPENAI_MODEL`을 사용합니다.
 
 `WEB_ORIGIN`은 쉼표로 여러 frontend origin을 지정할 수 있습니다. 예를 들어 Vercel production URL과 preview URL을 함께 허용해야 하면 `https://style-print-jung.vercel.app,https://style-print-jung-git-dev.vercel.app`처럼 설정합니다.
 
 ## 주요 흐름
 
-1. Web에서 screenshot을 base64 data URL로 변환해 API에 업로드합니다.
-2. API는 이미지를 `public/uploads`에 저장하고 metadata를 `data/references.json`에 기록합니다.
-3. API가 `sharp`로 screenshot 픽셀 기반 color token을 추출합니다.
-4. OpenAI Responses API가 typography, layout, spacing, component style, mood keyword를 JSON facet으로 분석합니다.
-5. Web에서 recipe를 선택하면 API가 IntentSpec으로 정규화합니다.
-6. API가 rule-based contrast/density/spacing conflict를 평가하고 repair plan을 저장합니다.
-7. 생성 요청 시 v0가 React + Tailwind 코드를 반환합니다.
-8. OpenAI audit이 생성 코드에서 facet을 역추출하고 intent와 비교합니다.
+1. Web에서 reference 이미지를 `multipart/form-data`로 업로드합니다.
+2. API는 이미지를 `public/uploads`에 저장하고 파일 URL, MIME, width/height metadata를 `data/references.json`에 기록합니다.
+3. API가 `sharp`와 rule-based color extractor로 palette, semantic color role, contrast 정보를 추출합니다.
+4. OpenAI Responses API가 같은 reference에서 typography, layout, spacing, component style, mood keyword를 JSON facet으로 분석합니다.
+5. Recipe 추천 또는 직접 선택을 통해 IntentSpec을 만들고, 선택 facet의 provenance와 source mood/confidence를 `styleContext`로 정규화합니다.
+6. API가 rule-based coherence를 평가하고, 요청 시 OpenAI judge가 dimension rating/checklist 기반으로 shadow 또는 primary 평가를 추가합니다.
+7. Generate UI 입력의 user brief, screen plan, variant count가 IntentSpec의 `generationBrief`에 저장되고 v0 prompt에 함께 전달됩니다.
+8. v0 생성은 async job으로 실행됩니다. `/api/generate/v0`는 job id를 반환하고, Web은 `/api/generate/jobs/:jobId`를 polling해 생성 코드와 preview URL을 받습니다.
+9. Preview artifact는 API가 로컬 파일로 빌드하고, 가능한 경우 Playwright screenshot을 저장합니다.
+10. OpenAI audit이 생성 코드에서 facet을 역추출하고, `generatedCodeId`와 함께 intent 대비 diff/provenance badge를 저장합니다.
 
 ## API
 
@@ -124,15 +127,27 @@ VITE_API_BASE_URL=
 | --- | --- | --- |
 | `/health` | `GET` | API 상태 확인 |
 | `/uploads/:filename` | `GET` | 업로드 이미지 제공 |
+| `/generated-previews/:previewId/:filename` | `GET` | 생성 preview artifact 파일 제공 |
 | `/api/references/upload` | `GET` | reference 목록 조회 |
-| `/api/references/upload` | `POST` | reference 이미지 업로드 |
+| `/api/references/upload` | `POST` | multipart reference 이미지 업로드 |
 | `/api/references/upload?id=...` | `DELETE` | reference 삭제 |
 | `/api/facets/extract` | `POST` | reference에서 facet 추출 |
 | `/api/intents/create` | `POST` | 선택한 recipe로 intent 생성 |
-| `/api/intents/evaluate` | `POST` | intent 충돌 평가 및 repair 저장 |
+| `/api/recipes/recommend` | `POST` | facet pack 기반 recipe 추천 |
+| `/api/intents/evaluate` | `POST` | intent coherence/conflict 평가 및 repair 저장. `judgeMode`으로 OpenAI judge를 `off`, `shadow`, `primary` 중 선택 |
 | `/api/intents/apply-repair` | `POST` | repair 적용 |
-| `/api/generate/v0` | `POST` | UI 코드 생성 |
-| `/api/audit/analyze` | `POST` | 생성 코드 audit |
+| `/api/coherence/feedback` | `POST` | coherence judge 결과 피드백 저장 |
+| `/api/generate/v0` | `POST` | v0 UI 코드 생성 job 생성. 현재 `single` mode만 지원 |
+| `/api/generate/jobs/:jobId` | `GET` | 생성 job 상태와 결과 조회 |
+| `/api/preview/build` | `POST` | 생성 코드 preview artifact 빌드 |
+| `/api/audit/analyze` | `POST` | 생성 코드 audit. `generatedCodeId`가 있으면 report에 연결 |
+
+## 구현 범위 메모
+
+- Reference 추출은 color는 rule-based, typography/layout/spacing/component style/mood는 OpenAI LLM 기반입니다. LLM prompt는 palette와 asset dimensions를 함께 받아 non-UI asset에서 layout을 과하게 추론하지 않도록 제한합니다.
+- v0 prompt는 normalized facet, exact palette usage, source mood/confidence, user brief, screen plan, variant count를 한 번에 받아 하나의 default-export React component를 생성합니다.
+- `GenerationMode` 타입에는 `staged`가 남아 있지만 서버는 아직 staged generation을 구현하지 않았고 `/api/generate/v0`에서 400으로 거절합니다.
+- API key가 없거나 외부 API 호출이 실패할 때 보여주기식 mock 결과로 대체하지 않습니다.
 
 ## 검증
 
@@ -140,9 +155,13 @@ VITE_API_BASE_URL=
 npm run typecheck
 npm run test
 npm run build
+npm run regression:intents
+npm run agreement:coherence
 ```
 
 `npm run build`는 backend/frontend 타입체크 후 Vite production build를 수행합니다.
+`npm run regression:intents`는 저장된 intent coherence/report를 비교해 회귀를 확인합니다.
+`npm run agreement:coherence`는 저장된 rule evaluator 결과, OpenAI judge 결과, human feedback expected score의 일치도를 markdown으로 출력합니다.
 
 로컬 또는 배포 환경 smoke check는 아래 명령으로 확인합니다.
 
@@ -161,5 +180,6 @@ npm run smoke:deploy
 ## 현재 한계
 
 - OpenAI/v0 API key가 없거나 외부 API 호출이 실패하면 관련 API 요청은 실패합니다.
+- staged generation은 타입만 남아 있고 현재 구현되어 있지 않습니다.
 - 저장소는 JSON 파일 기반이라 다중 사용자/배포 환경에는 SQLite/PostgreSQL/S3/R2 같은 저장소가 필요합니다.
 - 인증과 사용자별 데이터 분리는 아직 없습니다.

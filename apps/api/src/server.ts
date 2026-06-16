@@ -1,10 +1,11 @@
-import Fastify from 'fastify'
+import Fastify, { type FastifyBaseLogger } from 'fastify'
 import multipart from '@fastify/multipart'
 import { nanoid } from 'nanoid'
 import { createWriteStream } from 'fs'
 import { promises as fs } from 'fs'
 import path from 'path'
 import { pipeline } from 'stream/promises'
+import sharp from 'sharp'
 import { config } from './config'
 import {
   getReference,
@@ -19,6 +20,8 @@ import {
   getIntentSpec,
   saveGeneratedCode,
   saveAuditReport,
+  saveCoherenceJudgeResult,
+  saveCoherenceFeedback,
 } from './db'
 import {
   extractColorsFromBase64,
@@ -34,6 +37,7 @@ import {
 import {
   analyzeDesignFacets,
   auditGeneratedCodeWithOpenAI,
+  judgeIntentCoherenceWithOpenAI,
 } from './openai-client'
 import { buildIntentExportPrompt } from './prompts/intent-export'
 import type {
@@ -42,22 +46,30 @@ import type {
   ApplyRepairResponse,
   ColorRole,
   ComponentStyleFacetToken,
+  CoherenceFeedback,
+  CoherenceEvaluation,
   CreateIntentResponse,
+  EvaluateRequest,
   EvaluateResponse,
   ExtractResponse,
   FacetDiff,
   FacetPack,
+  FacetType,
   GenerationJobStatus,
   GenerateRequest,
   GenerateResponse,
   GeneratedCode,
   IntentSpec,
+  CoherenceJudgeResult,
   PreviewBuildResponse,
   ProvenanceBadge,
   ReferenceAsset,
   RecommendRecipesResponse,
   Recipe,
   SpacingFacetToken,
+  StyleContext,
+  SubmitCoherenceFeedbackRequest,
+  SubmitCoherenceFeedbackResponse,
   UploadResponse,
 } from '@style-print-jung/shared'
 
@@ -202,12 +214,13 @@ app.post('/api/references/upload', async (request, reply) => {
         throw error
       }
 
+      const metadata = await readStoredImageMetadata(filePath)
       const reference: ReferenceAsset = {
         id,
         filename,
         mime,
-        width: 0,
-        height: 0,
+        width: metadata.width,
+        height: metadata.height,
         url,
         storagePath,
         createdAt: Date.now(),
@@ -309,7 +322,10 @@ app.post('/api/facets/extract', async (request, reply) => {
       colorTokens.map((token) => [token.value.role, token.value.hex])
     )
 
-    const designFacets = await analyzeDesignFacets(imageDataUrl, colorPalette)
+    const designFacets = await analyzeDesignFacets(imageDataUrl, colorPalette, {
+      width: reference.width,
+      height: reference.height,
+    })
 
     const typographyValue = designFacets.typography
     const typographyToken = {
@@ -360,6 +376,12 @@ app.post('/api/facets/extract', async (request, reply) => {
         componentStyleToken,
       ],
       summary: { moodKeywords: designFacets.moodKeywords },
+      source: {
+        filename: reference.filename,
+        mime: reference.mime,
+        width: reference.width,
+        height: reference.height,
+      },
       createdAt: Date.now(),
     }
 
@@ -388,7 +410,7 @@ app.post('/api/intents/create', async (request, reply) => {
         .send({ success: false, error: 'No chosen facets provided' } satisfies CreateIntentResponse)
     }
 
-    const { normalized, provenance } = await buildIntentFromChosen(chosen)
+    const { normalized, provenance, styleContext } = await buildIntentFromChosen(chosen)
 
     const intentSpec: IntentSpec = {
       id: nanoid(),
@@ -401,6 +423,7 @@ app.post('/api/intents/create', async (request, reply) => {
       createdAt: Date.now(),
       targetExport: MVP_EXPORT_TARGET,
       generationBrief,
+      styleContext,
     }
 
     await saveIntentSpec(intentSpec)
@@ -444,12 +467,20 @@ app.post('/api/recipes/recommend', async (request, reply) => {
 
 app.post('/api/intents/evaluate', async (request, reply) => {
   try {
-    const { intentSpecId } = request.body as { intentSpecId?: string }
+    const { intentSpecId, judgeMode = 'off' } =
+      request.body as Partial<EvaluateRequest>
 
     if (!intentSpecId) {
       return reply
         .status(400)
         .send({ success: false, error: 'No intentSpecId provided' } satisfies EvaluateResponse)
+    }
+
+    if (judgeMode === 'primary') {
+      return reply.status(400).send({
+        success: false,
+        error: 'Primary coherence judge mode is not enabled yet',
+      } satisfies EvaluateResponse)
     }
 
     const intentSpec = await getIntentSpec(intentSpecId)
@@ -459,17 +490,25 @@ app.post('/api/intents/evaluate', async (request, reply) => {
         .send({ success: false, error: 'IntentSpec not found' } satisfies EvaluateResponse)
     }
 
-    const { conflicts, repairs, coherenceScore } = evaluateIntentSpec(intentSpec)
+    const { conflicts, repairs, coherenceScore, coherence } = evaluateIntentSpec(intentSpec)
     intentSpec.conflicts = conflicts
     intentSpec.repairs = repairs
     intentSpec.coherenceScore = coherenceScore
+    intentSpec.coherence = coherence
     await saveIntentSpec(intentSpec)
+
+    const judgeResult =
+      judgeMode === 'shadow'
+        ? await runShadowCoherenceJudge(intentSpec, coherence, request.log)
+        : undefined
 
     return reply.send({
       success: true,
       conflicts,
       repairs,
       coherenceScore,
+      coherence,
+      judgeResult,
     } satisfies EvaluateResponse)
   } catch (error) {
     request.log.error(error)
@@ -547,6 +586,7 @@ app.post('/api/intents/apply-repair', async (request, reply) => {
     intentSpec.conflicts = evaluated.conflicts
     intentSpec.repairs = evaluated.repairs
     intentSpec.coherenceScore = evaluated.coherenceScore
+    intentSpec.coherence = evaluated.coherence
 
     await saveIntentSpec(intentSpec)
 
@@ -557,6 +597,73 @@ app.post('/api/intents/apply-repair', async (request, reply) => {
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error',
     } satisfies ApplyRepairResponse)
+  }
+})
+
+app.post('/api/coherence/feedback', async (request, reply) => {
+  try {
+    const {
+      intentSpecId,
+      judgeResultId,
+      rating,
+      expectedScore,
+      comment,
+    } = request.body as Partial<SubmitCoherenceFeedbackRequest>
+
+    if (!intentSpecId || !rating) {
+      return reply.status(400).send({
+        success: false,
+        error: 'Missing intentSpecId or rating',
+      } satisfies SubmitCoherenceFeedbackResponse)
+    }
+
+    if (!['accurate', 'tooHigh', 'tooLow', 'unclear'].includes(rating)) {
+      return reply.status(400).send({
+        success: false,
+        error: 'Invalid coherence feedback rating',
+      } satisfies SubmitCoherenceFeedbackResponse)
+    }
+
+    if (
+      expectedScore !== undefined &&
+      (expectedScore < 0 || expectedScore > 100)
+    ) {
+      return reply.status(400).send({
+        success: false,
+        error: 'expectedScore must be between 0 and 100',
+      } satisfies SubmitCoherenceFeedbackResponse)
+    }
+
+    const intentSpec = await getIntentSpec(intentSpecId)
+    if (!intentSpec) {
+      return reply.status(404).send({
+        success: false,
+        error: 'IntentSpec not found',
+      } satisfies SubmitCoherenceFeedbackResponse)
+    }
+
+    const feedback: CoherenceFeedback = {
+      id: nanoid(),
+      intentSpecId,
+      judgeResultId,
+      rating,
+      expectedScore,
+      comment: comment?.trim() || undefined,
+      createdAt: Date.now(),
+    }
+
+    await saveCoherenceFeedback(feedback)
+
+    return reply.send({
+      success: true,
+      feedback,
+    } satisfies SubmitCoherenceFeedbackResponse)
+  } catch (error) {
+    request.log.error(error)
+    return reply.status(500).send({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    } satisfies SubmitCoherenceFeedbackResponse)
   }
 })
 
@@ -575,6 +682,13 @@ app.post('/api/generate/v0', async (request, reply) => {
         .send({ success: false, error: 'No intentSpecId provided' } satisfies GenerateResponse)
     }
 
+    if (stepMode === 'staged') {
+      return reply.status(400).send({
+        success: false,
+        error: 'Staged generation is not implemented yet',
+      } satisfies GenerateResponse)
+    }
+
     const intentSpec = await getIntentSpec(intentSpecId)
     if (!intentSpec) {
       return reply
@@ -583,10 +697,11 @@ app.post('/api/generate/v0', async (request, reply) => {
     }
 
     if (chosen) {
-      const { normalized, provenance } = await buildIntentFromChosen(chosen)
+      const { normalized, provenance, styleContext } = await buildIntentFromChosen(chosen)
       intentSpec.chosen = chosen
       intentSpec.normalized = normalized
       intentSpec.provenance = provenance
+      intentSpec.styleContext = styleContext
     }
 
     if (generationBrief) {
@@ -597,6 +712,7 @@ app.post('/api/generate/v0', async (request, reply) => {
     intentSpec.conflicts = evaluated.conflicts
     intentSpec.repairs = evaluated.repairs
     intentSpec.coherenceScore = evaluated.coherenceScore
+    intentSpec.coherence = evaluated.coherence
 
     await saveIntentSpec(intentSpec)
 
@@ -788,8 +904,9 @@ app.post('/api/preview/build', async (request, reply) => {
 
 app.post('/api/audit/analyze', async (request, reply) => {
   try {
-    const { intentSpecId, code } = request.body as {
+    const { intentSpecId, generatedCodeId, code } = request.body as {
       intentSpecId?: string
+      generatedCodeId?: string
       code?: string
     }
 
@@ -813,7 +930,7 @@ app.post('/api/audit/analyze', async (request, reply) => {
     const report: AuditReport = {
       id: nanoid(),
       intentSpecId,
-      generatedCodeId: '',
+      generatedCodeId: generatedCodeId || '',
       augmented,
       diffs,
       provenanceBadges,
@@ -851,6 +968,21 @@ if (process.env.NODE_ENV !== 'test') {
 
 async function ensureUploadDir() {
   await fs.mkdir(config.upload.dir, { recursive: true })
+}
+
+async function readStoredImageMetadata(filePath: string): Promise<{
+  width?: number
+  height?: number
+}> {
+  try {
+    const metadata = await sharp(filePath).metadata()
+    return {
+      width: metadata.width,
+      height: metadata.height,
+    }
+  } catch {
+    return {}
+  }
 }
 
 async function clearRuntimeStorage() {
@@ -957,6 +1089,7 @@ function getHeader(
 async function buildIntentFromChosen(chosen: IntentSpec['chosen']): Promise<{
   normalized: IntentSpec['normalized']
   provenance: IntentSpec['provenance']
+  styleContext: StyleContext
 }> {
   const packs = await getFacetPacks()
   return buildIntentFromChosenWithPacks(chosen, packs)
@@ -968,6 +1101,7 @@ function buildIntentFromChosenWithPacks(
 ): {
   normalized: IntentSpec['normalized']
   provenance: IntentSpec['provenance']
+  styleContext: StyleContext
 } {
   const normalized: IntentSpec['normalized'] = {}
   const provenance: IntentSpec['provenance'] = {}
@@ -1023,7 +1157,67 @@ function buildIntentFromChosenWithPacks(
     }
   }
 
-  return { normalized, provenance }
+  return { normalized, provenance, styleContext: buildStyleContext(chosen, packs) }
+}
+
+function buildStyleContext(
+  chosen: IntentSpec['chosen'],
+  packs: FacetPack[]
+): StyleContext {
+  const sources = new Map<string, StyleContext['sources'][number]>()
+
+  recipeFacetFields.forEach((field) => {
+    const refId = chosen[field.key]
+    if (!refId) return
+
+    const pack = packs.find((facetPack) => facetPack.refId === refId)
+    if (!pack) return
+
+    const source = sources.get(refId) || {
+      refId,
+      facetTypes: [],
+      moodKeywords: pack.summary.moodKeywords || [],
+      averageConfidence: 0,
+      width: pack.source?.width,
+      height: pack.source?.height,
+    }
+    const facetType = field.facetType as FacetType
+
+    if (!source.facetTypes.includes(facetType)) {
+      source.facetTypes.push(facetType)
+    }
+
+    const confidences = pack.tokens
+      .filter((token) => token.facetType === field.facetType)
+      .map((token) => token.confidence)
+    const confidence =
+      confidences.length > 0
+        ? confidences.reduce((sum, value) => sum + value, 0) / confidences.length
+        : 0
+    source.averageConfidence = Math.max(source.averageConfidence, confidence)
+
+    sources.set(refId, source)
+  })
+
+  const sourceList = [...sources.values()]
+  return {
+    moodKeywords: uniqueStrings(
+      sourceList.flatMap((source) => source.moodKeywords)
+    ).slice(0, 8),
+    sources: sourceList.map((source) => ({
+      ...source,
+      moodKeywords: uniqueStrings(source.moodKeywords).slice(0, 6),
+      averageConfidence: roundToTwoDecimals(source.averageConfidence),
+    })),
+  }
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values.map((value) => value.trim()).filter(Boolean))]
+}
+
+function roundToTwoDecimals(value: number): number {
+  return Math.round(value * 100) / 100
 }
 
 async function resolveRecommendationFacetPacks(input: {
@@ -1057,7 +1251,7 @@ function recommendRecipes(packs: FacetPack[], limit: number): Recipe[] {
 
   return chosenCandidates
     .map((chosen, index) => {
-      const { normalized, provenance } = buildIntentFromChosenWithPacks(chosen, packs)
+      const { normalized, provenance, styleContext } = buildIntentFromChosenWithPacks(chosen, packs)
       const evaluated = evaluateIntentSpec({
         id: `recipe-candidate-${index}`,
         chosen,
@@ -1068,6 +1262,7 @@ function recommendRecipes(packs: FacetPack[], limit: number): Recipe[] {
         history: [],
         createdAt: Date.now(),
         targetExport: MVP_EXPORT_TARGET,
+        styleContext,
       })
 
       return {
@@ -1095,6 +1290,34 @@ function recommendRecipes(packs: FacetPack[], limit: number): Recipe[] {
       coherenceScore: candidate.score,
       description: describeRecommendedRecipe(candidate.chosen),
     }))
+}
+
+async function runShadowCoherenceJudge(
+  intentSpec: IntentSpec,
+  baseline: CoherenceEvaluation,
+  log: FastifyBaseLogger
+): Promise<CoherenceJudgeResult | undefined> {
+  try {
+    const judged = await judgeIntentCoherenceWithOpenAI(intentSpec, baseline)
+    const result: CoherenceJudgeResult = {
+      id: nanoid(),
+      intentSpecId: intentSpec.id,
+      mode: 'shadow',
+      createdAt: Date.now(),
+      ...judged,
+    }
+    await saveCoherenceJudgeResult(result)
+    return result
+  } catch (error) {
+    log.warn(
+      {
+        err: error,
+        intentSpecId: intentSpec.id,
+      },
+      'Shadow coherence judge failed'
+    )
+    return undefined
+  }
 }
 
 function getRecipeCandidateRefs(

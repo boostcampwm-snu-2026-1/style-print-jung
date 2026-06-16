@@ -33,6 +33,8 @@ import {
   Wand2,
   Code,
   AlertTriangle,
+  ArrowDown,
+  ArrowUp,
   Check,
   ChevronRight,
   Loader2,
@@ -53,7 +55,10 @@ import type {
   Recipe,
   GenerateResponse,
   AuditResponse,
+  CoherenceFeedbackRating,
+  CoherenceJudgeResult,
   RecommendRecipesResponse,
+  SubmitCoherenceFeedbackResponse,
 } from '@/lib/types'
 
 // Code-split the generated preview so the upload/recipe flow stays light.
@@ -112,6 +117,9 @@ export default function App() {
   const [conflicts, setConflicts] = useState<ConflictCard[]>([])
   const [repairs, setRepairs] = useState<RepairPlan[]>([])
   const [coherenceScore, setCoherenceScore] = useState<number>(0)
+  const [coherenceJudgeResult, setCoherenceJudgeResult] =
+    useState<CoherenceJudgeResult | null>(null)
+  const [coherenceFeedbackStatus, setCoherenceFeedbackStatus] = useState<string | null>(null)
 
   // Generation state
   const [generationChosen, setGenerationChosen] = useState<IntentSpec['chosen']>({})
@@ -256,6 +264,8 @@ export default function App() {
     setConflicts([])
     setRepairs([])
     setCoherenceScore(recipe.coherenceScore)
+    setCoherenceJudgeResult(null)
+    setCoherenceFeedbackStatus(null)
     setGeneratedCode(null)
     setAuditReport(null)
     setGenerationError(null)
@@ -384,7 +394,7 @@ export default function App() {
       const response = await fetch(apiUrl('/api/intents/evaluate'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ intentSpecId: specId }),
+        body: JSON.stringify({ intentSpecId: specId, judgeMode: 'shadow' }),
       })
       const data = await response.json()
       if (data.success) {
@@ -392,10 +402,38 @@ export default function App() {
         setConflicts(data.conflicts || [])
         setRepairs(data.repairs || [])
         setCoherenceScore(score)
+        setCoherenceJudgeResult(data.judgeResult || null)
+        setCoherenceFeedbackStatus(null)
         updateRecipeCoherence(recipeId, score)
       }
     } catch (err) {
       console.error('Failed to evaluate intent spec:', err)
+    }
+  }
+
+  const submitCoherenceFeedback = async (rating: CoherenceFeedbackRating) => {
+    if (!intentSpec) return
+
+    try {
+      setCoherenceFeedbackStatus('Saving...')
+      const response = await fetch(apiUrl('/api/coherence/feedback'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          intentSpecId: intentSpec.id,
+          judgeResultId: coherenceJudgeResult?.id,
+          rating,
+        }),
+      })
+      const data = await response.json() as SubmitCoherenceFeedbackResponse
+      if (data.success) {
+        setCoherenceFeedbackStatus('Saved')
+      } else {
+        setCoherenceFeedbackStatus(data.error || 'Save failed')
+      }
+    } catch (err) {
+      console.error('Failed to submit coherence feedback:', err)
+      setCoherenceFeedbackStatus('Save failed')
     }
   }
 
@@ -482,7 +520,11 @@ export default function App() {
     setGeneratedCode(data.generatedCode)
     setLastGeneratedSignature(generationSignature)
 
-    await auditCode(data.generatedCode.code, data.intentSpec?.id || intentSpec?.id)
+    await auditCode(
+      data.generatedCode.code,
+      data.intentSpec?.id || intentSpec?.id,
+      data.generatedCode.id
+    )
   }
 
   const pollGenerationJob = async (jobId: string): Promise<GenerateResponse> => {
@@ -510,7 +552,11 @@ export default function App() {
     throw new Error('Generate UI timed out')
   }
 
-  const auditCode = async (code: string, specId = intentSpec?.id) => {
+  const auditCode = async (
+    code: string,
+    specId = intentSpec?.id,
+    generatedCodeId?: string
+  ) => {
     if (!specId) return
 
     try {
@@ -519,6 +565,7 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           intentSpecId: specId,
+          generatedCodeId,
           code,
         }),
       })
@@ -778,6 +825,40 @@ export default function App() {
                         <span className="text-2xl font-bold">{coherenceScore}%</span>
                       </div>
                       <Progress value={coherenceScore} />
+                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => submitCoherenceFeedback('accurate')}
+                        >
+                          <Check className="mr-2 h-4 w-4" />
+                          Accurate
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => submitCoherenceFeedback('tooHigh')}
+                        >
+                          <ArrowUp className="mr-2 h-4 w-4" />
+                          Too high
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => submitCoherenceFeedback('tooLow')}
+                        >
+                          <ArrowDown className="mr-2 h-4 w-4" />
+                          Too low
+                        </Button>
+                        {coherenceFeedbackStatus && (
+                          <span className="text-sm text-muted-foreground">
+                            {coherenceFeedbackStatus}
+                          </span>
+                        )}
+                      </div>
                     </div>
                     <ConflictList
                       conflicts={conflicts}

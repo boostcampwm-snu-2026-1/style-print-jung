@@ -49,11 +49,36 @@ export function buildIntentExportPrompt(
     )
   }
 
+  if (intentSpec.styleContext) {
+    const { moodKeywords, sources } = intentSpec.styleContext
+    sections.push('## Style Mood and Source Context')
+    if (moodKeywords.length > 0) {
+      sections.push(`- Overall mood: ${moodKeywords.join(', ')}`)
+    }
+    sources.forEach((source) => {
+      const size =
+        source.width && source.height ? `, asset ${source.width}x${source.height}px` : ''
+      const moods =
+        source.moodKeywords.length > 0 ? `, mood ${source.moodKeywords.join(', ')}` : ''
+      sections.push(
+        `- Ref ${source.refId}: ${source.facetTypes.join(', ')} facets, confidence ${source.averageConfidence}${moods}${size}`
+      )
+    })
+    sections.push(
+      '- Use source mood as the tonal guide for copy, visual hierarchy, and component composition.',
+      '- When sources differ, preserve the selected facet values while making the final UI feel like one coherent product.',
+      ''
+    )
+  }
+
   if (normalized.palette) {
     sections.push('## Color Palette', 'Use these exact colors with semantic roles:')
     Object.entries(normalized.palette).forEach(([role, hex]) => {
       sections.push(`- ${role}: ${hex}`)
     })
+    sections.push(
+      '- Suggested usage: background/surface should dominate, primary should drive key actions and navigation, accent/secondary should be used sparingly for emphasis.'
+    )
     sections.push('')
   }
 

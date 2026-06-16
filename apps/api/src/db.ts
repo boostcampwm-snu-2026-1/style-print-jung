@@ -6,6 +6,8 @@ import type {
   IntentSpec,
   GeneratedCode,
   AuditReport,
+  CoherenceJudgeResult,
+  CoherenceFeedback,
 } from '@style-print-jung/shared'
 
 // Data directory path
@@ -31,6 +33,8 @@ const RUNTIME_FILES = [
   'intents.json',
   'generated-code.json',
   'audit-reports.json',
+  'coherence-judge-results.json',
+  'coherence-feedback.json',
 ]
 
 // Generic read/write helpers
@@ -230,4 +234,50 @@ export async function saveAuditReport(report: AuditReport): Promise<void> {
     reports.push(report)
   }
   await writeJSON(AUDIT_REPORTS_FILE, reports)
+}
+
+// ============================================
+// Coherence Judge Results
+// ============================================
+
+const COHERENCE_JUDGE_RESULTS_FILE = 'coherence-judge-results.json'
+
+export async function getCoherenceJudgeResults(): Promise<CoherenceJudgeResult[]> {
+  return readJSON<CoherenceJudgeResult>(COHERENCE_JUDGE_RESULTS_FILE)
+}
+
+export async function saveCoherenceJudgeResult(
+  result: CoherenceJudgeResult
+): Promise<void> {
+  const results = await getCoherenceJudgeResults()
+  const existing = results.findIndex((r) => r.id === result.id)
+  if (existing >= 0) {
+    results[existing] = result
+  } else {
+    results.push(result)
+  }
+  await writeJSON(COHERENCE_JUDGE_RESULTS_FILE, results)
+}
+
+// ============================================
+// Coherence Feedback
+// ============================================
+
+const COHERENCE_FEEDBACK_FILE = 'coherence-feedback.json'
+
+export async function getCoherenceFeedback(): Promise<CoherenceFeedback[]> {
+  return readJSON<CoherenceFeedback>(COHERENCE_FEEDBACK_FILE)
+}
+
+export async function saveCoherenceFeedback(
+  feedback: CoherenceFeedback
+): Promise<void> {
+  const items = await getCoherenceFeedback()
+  const existing = items.findIndex((item) => item.id === feedback.id)
+  if (existing >= 0) {
+    items[existing] = feedback
+  } else {
+    items.push(feedback)
+  }
+  await writeJSON(COHERENCE_FEEDBACK_FILE, items)
 }

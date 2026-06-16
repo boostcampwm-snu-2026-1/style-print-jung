@@ -109,6 +109,12 @@ export type FacetPack = {
   refId: string
   tokens: FacetToken[]
   summary: { moodKeywords: string[] } // LLM이 뽑아주는 요약
+  source?: {
+    filename?: string
+    mime?: string
+    width?: number
+    height?: number
+  }
   createdAt: number
 }
 
@@ -146,6 +152,107 @@ export type GenerationBrief = {
   variantCount: 1 | 2 | 3
 }
 
+export type StyleContextSource = {
+  refId: string
+  facetTypes: FacetType[]
+  moodKeywords: string[]
+  averageConfidence: number
+  width?: number
+  height?: number
+}
+
+export type StyleContext = {
+  moodKeywords: string[]
+  sources: StyleContextSource[]
+}
+
+// ============================================
+// Coherence Evaluation Types
+// ============================================
+
+export type CoherenceDimension =
+  | 'accessibility'
+  | 'visualConsistency'
+  | 'intentCoverage'
+  | 'provenanceCoverage'
+  | 'sourceHarmony'
+  | 'generationReadiness'
+
+export type CoherenceDimensionScores = Record<CoherenceDimension, number>
+
+export type CoherenceFinding = {
+  dimension: CoherenceDimension
+  severity: ConflictSeverity
+  message: string
+  rationale?: string
+  affectedKeys: string[]
+}
+
+export type CoherenceEvaluation = {
+  score: number
+  dimensions: CoherenceDimensionScores
+  findings: CoherenceFinding[]
+  evaluatorVersion: string
+  evaluatedAt: number
+}
+
+export type CoherenceJudgeMode = 'off' | 'shadow' | 'primary'
+
+export type CoherenceJudgePromptVersion = {
+  id: string
+  version: string
+  rubricHash: string
+  model?: string
+  createdAt: number
+}
+
+export type CoherenceJudgeRating = 'strong' | 'adequate' | 'weak' | 'fail'
+
+export type CoherenceJudgeDimensionRating = {
+  dimension: CoherenceDimension
+  rating: CoherenceJudgeRating
+  rationale: string
+  affectedKeys: string[]
+}
+
+export type CoherenceJudgeCheck = {
+  id: string
+  dimension: CoherenceDimension
+  met: boolean
+  rationale: string
+  affectedKeys: string[]
+}
+
+export type CoherenceJudgeResult = {
+  id: string
+  intentSpecId: string
+  mode: Exclude<CoherenceJudgeMode, 'off'>
+  promptVersion: CoherenceJudgePromptVersion
+  score: number
+  dimensions: CoherenceDimensionScores
+  findings: CoherenceFinding[]
+  dimensionRatings?: CoherenceJudgeDimensionRating[]
+  checklist?: CoherenceJudgeCheck[]
+  confidence: number
+  createdAt: number
+}
+
+export type CoherenceFeedbackRating =
+  | 'accurate'
+  | 'tooHigh'
+  | 'tooLow'
+  | 'unclear'
+
+export type CoherenceFeedback = {
+  id: string
+  intentSpecId: string
+  judgeResultId?: string
+  rating: CoherenceFeedbackRating
+  expectedScore?: number
+  comment?: string
+  createdAt: number
+}
+
 export type IntentSpec = {
   id: string
   chosen: {
@@ -168,8 +275,10 @@ export type IntentSpec = {
   history: SpecChange[]
   createdAt: number
   coherenceScore?: number
+  coherence?: CoherenceEvaluation
   targetExport: IntentExportTarget
   generationBrief?: GenerationBrief
+  styleContext?: StyleContext
 }
 
 // ============================================
@@ -297,7 +406,7 @@ export type AuditReport = {
 // ============================================
 
 export type UploadRequest = {
-  files: string[] // base64 dataUrls
+  files: File[] // Runtime request is multipart/form-data; base64 JSON upload is not supported.
 }
 
 export type UploadResponse = {
@@ -329,6 +438,7 @@ export type CreateIntentResponse = {
 
 export type EvaluateRequest = {
   intentSpecId: string
+  judgeMode?: CoherenceJudgeMode
 }
 
 export type EvaluateResponse = {
@@ -336,6 +446,22 @@ export type EvaluateResponse = {
   conflicts?: ConflictCard[]
   repairs?: RepairPlan[]
   coherenceScore?: number
+  coherence?: CoherenceEvaluation
+  judgeResult?: CoherenceJudgeResult
+  error?: string
+}
+
+export type SubmitCoherenceFeedbackRequest = {
+  intentSpecId: string
+  judgeResultId?: string
+  rating: CoherenceFeedbackRating
+  expectedScore?: number
+  comment?: string
+}
+
+export type SubmitCoherenceFeedbackResponse = {
+  success: boolean
+  feedback?: CoherenceFeedback
   error?: string
 }
 
@@ -393,6 +519,7 @@ export type PreviewBuildResponse = {
 
 export type AuditRequest = {
   intentSpecId: string
+  generatedCodeId?: string
   code: string
 }
 
