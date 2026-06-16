@@ -156,10 +156,12 @@ npm run typecheck
 npm run test
 npm run build
 npm run regression:intents
+npm run agreement:coherence
 ```
 
 `npm run build`는 backend/frontend 타입체크 후 Vite production build를 수행합니다.
 `npm run regression:intents`는 저장된 intent coherence/report를 비교해 회귀를 확인합니다.
+`npm run agreement:coherence`는 저장된 rule evaluator 결과, OpenAI judge 결과, human feedback expected score의 일치도를 markdown으로 출력합니다.
 
 로컬 또는 배포 환경 smoke check는 아래 명령으로 확인합니다.
 
