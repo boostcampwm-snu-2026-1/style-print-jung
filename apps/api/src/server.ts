@@ -1318,11 +1318,7 @@ function recommendRecipes(packs: FacetPack[], limit: number): Recipe[] {
       return a.order - b.order
     })
 
-  return selectRecommendedRecipeCandidates(
-    rankedCandidates,
-    resultLimit,
-    countRecommendationSources(candidatesByFacet)
-  )
+  return selectRecommendedRecipeCandidates(rankedCandidates, resultLimit)
     .map((candidate, index) => ({
       id: `recipe-${index + 1}`,
       name:
@@ -1522,47 +1518,46 @@ function buildDistributedRecipeChosen(
 
 function selectRecommendedRecipeCandidates(
   rankedCandidates: RecipeCandidate[],
-  resultLimit: number,
-  sourceCount: number
+  resultLimit: number
 ): RecipeCandidate[] {
-  if (sourceCount < 5 || resultLimit <= 1) {
-    return rankedCandidates.slice(0, resultLimit)
-  }
+  // Coherence inherently favors single-source recipes (one screenshot's facets
+  // are self-consistent by construction), so ranking purely by score would fill
+  // every slot with single-source clones. Instead we reserve one slot for the
+  // safest single-source baseline and fill the rest with the best multi-source
+  // mixes — those compete against each other by mood harmony, which is the
+  // actual product value ("the best ways to combine your references").
+  const singles = rankedCandidates.filter((candidate) => candidate.sourceCount <= 1)
+  const mixes = rankedCandidates.filter((candidate) => candidate.sourceCount >= 2)
 
   const selected: RecipeCandidate[] = []
   const selectedKeys = new Set<string>()
-  const selectedMixedSourceSets = new Set<string>()
+  const selectedSourceSets = new Set<string>()
 
-  const pushCandidate = (candidate: RecipeCandidate) => {
-    if (selected.length >= resultLimit) return
+  const pushCandidate = (candidate: RecipeCandidate | undefined): boolean => {
+    if (!candidate || selected.length >= resultLimit) return false
 
     const key = getChosenCandidateKey(candidate.chosen)
-    if (selectedKeys.has(key)) return
+    if (selectedKeys.has(key)) return false
 
     selected.push(candidate)
     selectedKeys.add(key)
-
-    if (candidate.sourceCount >= 3) {
-      selectedMixedSourceSets.add(getChosenSourceSetKey(candidate.chosen))
-    }
+    selectedSourceSets.add(getChosenSourceSetKey(candidate.chosen))
+    return true
   }
 
-  const bestOverall = rankedCandidates[0]
-  if (bestOverall) {
-    pushCandidate(bestOverall)
-  }
+  // 1) Reserve one slot for the most coherent single-source baseline.
+  pushCandidate(singles[0])
 
-  for (const candidate of rankedCandidates) {
+  // 2) Fill remaining slots with the best mixes, preferring distinct source sets
+  //    so the slate shows genuinely different combinations.
+  for (const candidate of mixes) {
     if (selected.length >= resultLimit) break
-    if (candidate.sourceCount < 3) continue
-
-    const sourceSetKey = getChosenSourceSetKey(candidate.chosen)
-    if (selectedMixedSourceSets.has(sourceSetKey)) continue
-
+    if (selectedSourceSets.has(getChosenSourceSetKey(candidate.chosen))) continue
     pushCandidate(candidate)
   }
 
-  for (const candidate of rankedCandidates) {
+  // 3) Backfill if mixes ran out (repeated source sets first, then more singles).
+  for (const candidate of [...mixes, ...singles]) {
     if (selected.length >= resultLimit) break
     pushCandidate(candidate)
   }
@@ -1591,14 +1586,6 @@ function getActiveRecipeFields(
   candidatesByFacet: Record<(typeof recipeFacetFields)[number]['key'], string[]>
 ): typeof recipeFacetFields[number][] {
   return recipeFacetFields.filter((field) => candidatesByFacet[field.key].length > 0)
-}
-
-function countRecommendationSources(
-  candidatesByFacet: Record<(typeof recipeFacetFields)[number]['key'], string[]>
-): number {
-  return new Set(
-    getActiveRecipeFields(candidatesByFacet).flatMap((field) => candidatesByFacet[field.key])
-  ).size
 }
 
 function countChosenSources(chosen: IntentSpec['chosen']): number {

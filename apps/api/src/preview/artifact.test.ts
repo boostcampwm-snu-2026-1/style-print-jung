@@ -330,7 +330,7 @@ describe('/api/recipes/recommend', () => {
     expect(new Set(Object.values(body.recipes?.[0]?.chosen || {})).size).toBe(1)
   })
 
-  test('keeps the best overall recipe and adds mixed recipes with five or more sources', async () => {
+  test('reserves a single-source baseline and fills the rest with distinct multi-source mixes', async () => {
     const response = await app.inject({
       method: 'POST',
       url: '/api/recipes/recommend',
@@ -349,13 +349,25 @@ describe('/api/recipes/recommend', () => {
 
     expect(response.statusCode).toBe(200)
     expect(body.recipes).toHaveLength(3)
+
+    // Slot 0 is the safest single-source baseline; coherence inherently favors
+    // it, so it must not crowd out the mix slots.
     expect(body.recipes?.[0]?.name).toBe('Unified Style')
     expect(new Set(Object.values(body.recipes?.[0]?.chosen || {})).size).toBe(1)
-    body.recipes?.slice(1).forEach((recipe) => {
+
+    // Remaining slots are genuine multi-source mixes, ranked among themselves.
+    const mixes = body.recipes?.slice(1) || []
+    mixes.forEach((recipe) => {
       expect(
         new Set(Object.values(recipe.chosen).filter(Boolean)).size
-      ).toBeGreaterThanOrEqual(3)
+      ).toBeGreaterThanOrEqual(2)
     })
+
+    // The mixes should be different combinations, not duplicates.
+    const mixSourceSets = mixes.map((recipe) =>
+      [...new Set(Object.values(recipe.chosen).filter(Boolean))].sort().join(',')
+    )
+    expect(new Set(mixSourceSets).size).toBe(mixSourceSets.length)
   })
 
   test('uses no more than ten reference packs for recommendations', async () => {

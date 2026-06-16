@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { AlertTriangle, Loader2 } from 'lucide-react'
+import { AlertTriangle, Loader2, Search } from 'lucide-react'
 import { apiUrl } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import type {
@@ -10,6 +10,20 @@ import type {
 } from '@/lib/types'
 
 const EMPTY_FILES: GeneratedCodeFile[] = []
+const PREVIEW_HEIGHT = 620
+const PREVIEW_ZOOM_OPTIONS = [
+  { value: 1, label: '100%' },
+  { value: 0.75, label: '75%' },
+  { value: 0.5, label: '50%' },
+] as const
+type PreviewZoom = (typeof PREVIEW_ZOOM_OPTIONS)[number]['value']
+
+function getPreviewZoom(value: string): PreviewZoom {
+  return (
+    PREVIEW_ZOOM_OPTIONS.find((option) => String(option.value) === value)
+      ?.value ?? 1
+  )
+}
 
 interface PreviewPaneProps {
   id: string
@@ -32,6 +46,7 @@ export function PreviewPane({
   const [resolvedPreviewUrl, setResolvedPreviewUrl] = useState(previewUrl)
   const [error, setError] = useState<string | null>(null)
   const [building, setBuilding] = useState(false)
+  const [previewZoom, setPreviewZoom] = useState<PreviewZoom>(1)
 
   useEffect(() => {
     setResolvedPreviewUrl(previewUrl)
@@ -97,13 +112,43 @@ export function PreviewPane({
       ) : null}
 
       {resolvedPreviewUrl ? (
-        <iframe
-          key={resolvedPreviewUrl}
-          title="Generated UI preview"
-          src={resolvedPreviewUrl}
-          sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
-          className="block h-[620px] w-full border-0 bg-white"
-        />
+        <>
+          <div className="flex items-center justify-end gap-2 border-b bg-muted/30 px-3 py-2">
+            <Search
+              aria-hidden="true"
+              className="h-4 w-4 text-muted-foreground"
+            />
+            <select
+              aria-label="Preview zoom"
+              value={String(previewZoom)}
+              onChange={(event) =>
+                setPreviewZoom(getPreviewZoom(event.target.value))
+              }
+              className="h-8 rounded-md border border-input bg-background px-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+            >
+              {PREVIEW_ZOOM_OPTIONS.map((option) => (
+                <option key={option.value} value={String(option.value)}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="h-[620px] overflow-hidden bg-white">
+            <iframe
+              key={resolvedPreviewUrl}
+              title="Generated UI preview"
+              src={resolvedPreviewUrl}
+              sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+              className="block border-0 bg-white"
+              style={{
+                width: `${100 / previewZoom}%`,
+                height: `${PREVIEW_HEIGHT / previewZoom}px`,
+                transform: `scale(${previewZoom})`,
+                transformOrigin: 'top left',
+              }}
+            />
+          </div>
+        </>
       ) : null}
     </div>
   )

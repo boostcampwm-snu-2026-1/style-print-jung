@@ -62,6 +62,11 @@
       letter-spacing: .08em;
       text-transform: uppercase;
     }
+    .cover-badge {
+      font-size: 11px;
+      letter-spacing: 0;
+      text-transform: none;
+    }
     .kicker {
       border-color: #e5e7eb;
       color: var(--muted);
@@ -80,29 +85,22 @@
       color: #cbd5e1;
       font-size: 19px;
     }
-    .cover-points {
+    .course-info {
       display: grid;
-      gap: 10px;
+      gap: 14px;
       max-width: 760px;
       margin: 0;
       padding: 0;
       list-style: none;
       color: #cbd5e1;
-      font-size: 19px;
+      font-size: 22px;
+      font-weight: 700;
+      line-height: 1.45;
     }
-    .cover-meta {
-      display: flex;
-      gap: 12px;
-      flex-wrap: wrap;
-      margin-top: 28px;
-    }
-    .cover-meta span {
-      padding: 8px 12px;
-      border: 1px solid rgba(255, 255, 255, .16);
-      border-radius: 8px;
+    .course-info .student {
       color: #e5e7eb;
-      background: rgba(255, 255, 255, .06);
-      font-size: 13px;
+      font-size: 16px;
+      font-weight: 600;
     }
     h2 {
       margin: 16px 0 18px;
@@ -180,18 +178,10 @@
     .warning {
       margin: 16px 0;
       padding: 15px 18px;
-      border-left: 4px solid var(--blue);
-      border-radius: 0 8px 8px 0;
-      background: #eff6ff;
+      border: 1px solid #dbe2ea;
+      border-radius: 8px;
+      background: #f8fafc;
       font-size: 15px;
-    }
-    .insight-box {
-      border-left-color: var(--green);
-      background: #ecfdf5;
-    }
-    .warning {
-      border-left-color: var(--amber);
-      background: #fffbeb;
     }
     .two-col {
       display: grid;
@@ -322,6 +312,144 @@
       color: var(--accent-strong);
       font-weight: 900;
     }
+    .pipeline-wide {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: 10px;
+      margin: 18px 0;
+    }
+    .pipeline-node {
+      min-height: 124px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 13px;
+      background: #f8fafc;
+    }
+    .pipeline-node.dark {
+      border-color: var(--dark);
+      background: var(--dark);
+      color: #fff;
+    }
+    .pipeline-node .step {
+      color: var(--accent-strong);
+      font-size: 12px;
+      font-weight: 900;
+      text-transform: uppercase;
+    }
+    .pipeline-node .title {
+      margin-top: 7px;
+      color: inherit;
+      font-weight: 900;
+      line-height: 1.3;
+    }
+    .pipeline-node .body {
+      margin-top: 7px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+    .pipeline-node.dark .body { color: #cbd5e1; }
+    .lane-grid {
+      display: grid;
+      grid-template-columns: 130px repeat(5, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 18px;
+      font-size: 13px;
+    }
+    .lane-label,
+    .lane-step {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px;
+      background: #f8fafc;
+    }
+    .lane-label {
+      display: flex;
+      align-items: center;
+      color: var(--ink);
+      font-weight: 900;
+    }
+    .lane-step {
+      min-height: 78px;
+      color: var(--muted);
+      line-height: 1.4;
+    }
+    .lane-step b {
+      display: block;
+      margin-bottom: 4px;
+      color: var(--ink);
+    }
+    .matrix-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+      margin-top: 18px;
+    }
+    .matrix-card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 16px;
+      background: #f8fafc;
+    }
+    .matrix-card.dark {
+      border-color: var(--dark);
+      background: var(--dark);
+      color: #fff;
+    }
+    .matrix-card h3 {
+      margin-top: 0;
+    }
+    .matrix-card.dark h3 {
+      color: #fff;
+    }
+    .formula {
+      margin: 14px 0;
+      padding: 14px 16px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #f8fafc;
+      color: var(--ink);
+      font-size: 18px;
+      font-weight: 900;
+      text-align: center;
+    }
+    .score-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 14px;
+    }
+    .score-card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      background: #fff;
+      font-size: 13px;
+    }
+    .score-card b {
+      display: block;
+      margin-bottom: 5px;
+      color: var(--ink);
+    }
+    .test-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 18px;
+    }
+    .test-card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px;
+      background: #f8fafc;
+      min-height: 150px;
+    }
+    .test-card h3 {
+      margin-top: 0;
+    }
+    .test-card ul {
+      font-size: 13px;
+    }
     .screenshot-frame {
       overflow: hidden;
       border: 1px solid var(--line);
@@ -427,8 +555,13 @@
       .two-col,
       .three-col,
       .diagram,
+      .pipeline-wide,
+      .matrix-grid,
+      .score-grid,
+      .test-grid,
       .flow,
       .mock-body { grid-template-columns: 1fr; }
+      .lane-grid { grid-template-columns: 1fr; }
       .screenshot-frame img { height: 260px; }
     }
     @media print {
@@ -448,23 +581,16 @@
 <body>
   <main class="deck">
     <section class="slide cover" id="slide-1">
-      <div class="cover-badge">STYLEPRINT SYSTEM PRESENTATION</div>
+      <div class="cover-badge">26-1 컴퓨터 및 VLSI특강 (AI를 활용한 front-end 개발)</div>
       <h1>Reference Screenshot에서<br><span>React + Tailwind UI</span>까지</h1>
-      <ul class="cover-points">
-        <li>Reference screenshot → 디자인 facet 추출</li>
-        <li>여러 reference → IntentSpec 조합</li>
-        <li>React + Tailwind UI code → preview · audit</li>
-      </ul>
-      <div class="cover-meta">
-        <span>5분 발표용</span>
-        <span>Demo → Architecture → Agent Workflow</span>
-        <span>Vite React + Fastify + OpenAI + v0</span>
+      <div class="course-info">
+        <div class="student">2025-25825(지능정보융합학과 이정)</div>
       </div>
       <div class="slide-no">01</div>
     </section>
 
     <section class="slide" id="slide-2">
-      <div class="kicker">0:00-0:30 · Opening</div>
+      <div class="kicker">Opening</div>
       <h2>문제 정의: UI 스타일 구현의 병목</h2>
       <div class="metric-grid">
         <div class="metric highlight">
@@ -494,7 +620,7 @@
     </section>
 
     <section class="slide" id="slide-3">
-      <div class="kicker">0:30-2:00 · Service Demo</div>
+      <div class="kicker">Service Demo</div>
       <h2>데모 시나리오: 레퍼런스 업로드부터 결과 preview까지</h2>
       <div class="flow">
         <div class="flow-step">
@@ -574,7 +700,7 @@
     </section>
 
     <section class="slide" id="slide-4">
-      <div class="kicker">0:30-2:00 · Demo Result</div>
+      <div class="kicker">Demo Result</div>
       <h2>최종 결과: Preview · Code · Audit</h2>
       <div class="two-col">
         <div>
@@ -614,7 +740,7 @@
     </section>
 
     <section class="slide" id="slide-5">
-      <div class="kicker">2:00-3:00 · Architecture</div>
+      <div class="kicker">Architecture</div>
       <h2>시스템 아키텍처: 요청이 결과물이 되는 흐름</h2>
       <div class="diagram">
         <div class="diagram-col">
@@ -664,7 +790,7 @@
     </section>
 
     <section class="slide" id="slide-6">
-      <div class="kicker">2:00-3:00 · Tech Stack</div>
+      <div class="kicker">Tech Stack</div>
       <h2>기술 스택: 빠른 프로토타입과 검증 루프 중심</h2>
       <div class="three-col">
         <div class="card">
@@ -711,7 +837,7 @@
     </section>
 
     <section class="slide" id="slide-7">
-      <div class="kicker">3:00-4:20 · Agent Workflow</div>
+      <div class="kicker">Agent Workflow</div>
       <h2>Agent Workflow: Planner → Tools → Validator → Response</h2>
       <div class="flow">
         <div class="flow-step">
@@ -762,7 +888,7 @@
     </section>
 
     <section class="slide" id="slide-8">
-      <div class="kicker">4:20-5:00 · Wrap-up</div>
+      <div class="kicker">Wrap-up</div>
       <h2>차별점과 향후 개선</h2>
       <div class="two-col">
         <div>
