@@ -1,4 +1,4 @@
-import Fastify from 'fastify'
+import Fastify, { type FastifyBaseLogger } from 'fastify'
 import multipart from '@fastify/multipart'
 import { nanoid } from 'nanoid'
 import { createWriteStream } from 'fs'
@@ -19,6 +19,7 @@ import {
   getIntentSpec,
   saveGeneratedCode,
   saveAuditReport,
+  saveCoherenceJudgeResult,
 } from './db'
 import {
   extractColorsFromBase64,
@@ -34,6 +35,7 @@ import {
 import {
   analyzeDesignFacets,
   auditGeneratedCodeWithOpenAI,
+  judgeIntentCoherenceWithOpenAI,
 } from './openai-client'
 import { buildIntentExportPrompt } from './prompts/intent-export'
 import type {
@@ -42,7 +44,9 @@ import type {
   ApplyRepairResponse,
   ColorRole,
   ComponentStyleFacetToken,
+  CoherenceEvaluation,
   CreateIntentResponse,
+  EvaluateRequest,
   EvaluateResponse,
   ExtractResponse,
   FacetDiff,
@@ -52,6 +56,7 @@ import type {
   GenerateResponse,
   GeneratedCode,
   IntentSpec,
+  CoherenceJudgeResult,
   PreviewBuildResponse,
   ProvenanceBadge,
   ReferenceAsset,
@@ -444,12 +449,20 @@ app.post('/api/recipes/recommend', async (request, reply) => {
 
 app.post('/api/intents/evaluate', async (request, reply) => {
   try {
-    const { intentSpecId } = request.body as { intentSpecId?: string }
+    const { intentSpecId, judgeMode = 'off' } =
+      request.body as Partial<EvaluateRequest>
 
     if (!intentSpecId) {
       return reply
         .status(400)
         .send({ success: false, error: 'No intentSpecId provided' } satisfies EvaluateResponse)
+    }
+
+    if (judgeMode === 'primary') {
+      return reply.status(400).send({
+        success: false,
+        error: 'Primary coherence judge mode is not enabled yet',
+      } satisfies EvaluateResponse)
     }
 
     const intentSpec = await getIntentSpec(intentSpecId)
@@ -466,12 +479,18 @@ app.post('/api/intents/evaluate', async (request, reply) => {
     intentSpec.coherence = coherence
     await saveIntentSpec(intentSpec)
 
+    const judgeResult =
+      judgeMode === 'shadow'
+        ? await runShadowCoherenceJudge(intentSpec, coherence, request.log)
+        : undefined
+
     return reply.send({
       success: true,
       conflicts,
       repairs,
       coherenceScore,
       coherence,
+      judgeResult,
     } satisfies EvaluateResponse)
   } catch (error) {
     request.log.error(error)
@@ -1099,6 +1118,34 @@ function recommendRecipes(packs: FacetPack[], limit: number): Recipe[] {
       coherenceScore: candidate.score,
       description: describeRecommendedRecipe(candidate.chosen),
     }))
+}
+
+async function runShadowCoherenceJudge(
+  intentSpec: IntentSpec,
+  baseline: CoherenceEvaluation,
+  log: FastifyBaseLogger
+): Promise<CoherenceJudgeResult | undefined> {
+  try {
+    const judged = await judgeIntentCoherenceWithOpenAI(intentSpec, baseline)
+    const result: CoherenceJudgeResult = {
+      id: nanoid(),
+      intentSpecId: intentSpec.id,
+      mode: 'shadow',
+      createdAt: Date.now(),
+      ...judged,
+    }
+    await saveCoherenceJudgeResult(result)
+    return result
+  } catch (error) {
+    log.warn(
+      {
+        err: error,
+        intentSpecId: intentSpec.id,
+      },
+      'Shadow coherence judge failed'
+    )
+    return undefined
+  }
 }
 
 function getRecipeCandidateRefs(

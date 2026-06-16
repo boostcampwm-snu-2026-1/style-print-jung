@@ -4,6 +4,10 @@ import { afterAll, afterEach, describe, expect, test } from 'vitest'
 import { config } from '../config'
 import { getIntentSpecs } from '../db'
 import { evaluateIntentSpec } from '../intent-evaluator'
+import {
+  COHERENCE_JUDGE_PROMPT_VERSION,
+  buildCoherenceJudgePrompt,
+} from '../prompts/coherence-judge'
 import { app } from '../server'
 import {
   readPreviewArtifactFile,
@@ -204,6 +208,33 @@ describe('intent evaluator', () => {
     expect(evaluated.coherence.dimensions.intentCoverage).toBeLessThan(100)
     expect(evaluated.coherence.dimensions.provenanceCoverage).toBeLessThan(100)
     expect(evaluated.coherence.dimensions.generationReadiness).toBeLessThan(100)
+  })
+})
+
+describe('coherence judge prompt', () => {
+  test('pins a prompt version and includes the baseline evaluation', () => {
+    const intentSpec = {
+      id: 'judge-prompt-test',
+      chosen: {},
+      normalized: {},
+      provenance: {},
+      conflicts: [],
+      repairs: [],
+      history: [],
+      createdAt: 1,
+      targetExport: {
+        format: 'react-tailwind',
+        label: 'React + Tailwind',
+        description: 'Test export target',
+      },
+    } satisfies IntentSpec
+    const baseline = evaluateIntentSpec(intentSpec).coherence
+    const prompt = buildCoherenceJudgePrompt({ intentSpec, baseline })
+
+    expect(COHERENCE_JUDGE_PROMPT_VERSION.id).toBe('coherence-judge-v1')
+    expect(COHERENCE_JUDGE_PROMPT_VERSION.rubricHash).toHaveLength(12)
+    expect(prompt).toContain('Rule-based baseline')
+    expect(prompt).toContain('judge-prompt-test')
   })
 })
 

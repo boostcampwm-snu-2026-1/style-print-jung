@@ -1,5 +1,8 @@
 import type {
   AuditReport,
+  CoherenceEvaluation,
+  CoherenceFinding,
+  CoherenceJudgeResult,
   ComponentStyleFacetToken,
   IntentSpec,
   LayoutFacetToken,
@@ -15,6 +18,11 @@ import {
   CODE_AUDIT_INSTRUCTIONS,
   buildCodeAuditPrompt,
 } from './prompts/code-audit'
+import {
+  COHERENCE_JUDGE_INSTRUCTIONS,
+  COHERENCE_JUDGE_PROMPT_VERSION,
+  buildCoherenceJudgePrompt,
+} from './prompts/coherence-judge'
 
 type DesignFacetAnalysis = {
   typography: TypographyFacetToken['value']
@@ -40,6 +48,11 @@ type OpenAIJSONOptions = {
   instructions?: string
   maxOutputTokens?: number
 }
+
+type CoherenceJudgePayload = Pick<
+  CoherenceJudgeResult,
+  'score' | 'dimensions' | 'findings' | 'confidence'
+>
 
 const DEFAULT_JSON_INSTRUCTIONS =
   'Return JSON that exactly matches the supplied schema.'
@@ -95,6 +108,36 @@ export async function auditGeneratedCodeWithOpenAI(
   )
 
   return normalizeAuditFacets(audit)
+}
+
+export async function judgeIntentCoherenceWithOpenAI(
+  intentSpec: IntentSpec,
+  baseline: CoherenceEvaluation
+): Promise<Omit<CoherenceJudgeResult, 'id' | 'intentSpecId' | 'mode' | 'createdAt'>> {
+  const result = await callOpenAIJSON<CoherenceJudgePayload>(
+    'coherence_judge',
+    coherenceJudgeSchema,
+    [
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'input_text',
+            text: buildCoherenceJudgePrompt({ intentSpec, baseline }),
+          },
+        ],
+      },
+    ],
+    { instructions: COHERENCE_JUDGE_INSTRUCTIONS, maxOutputTokens: 2200 }
+  )
+
+  return {
+    ...normalizeCoherenceJudgePayload(result),
+    promptVersion: {
+      ...COHERENCE_JUDGE_PROMPT_VERSION,
+      model: config.openai.model,
+    },
+  }
 }
 
 async function callOpenAIJSON<T>(
@@ -186,6 +229,37 @@ function normalizeAuditFacets(
   }
 }
 
+function normalizeCoherenceJudgePayload(
+  result: CoherenceJudgePayload
+): CoherenceJudgePayload {
+  return {
+    score: clampScore(result.score),
+    dimensions: {
+      accessibility: clampScore(result.dimensions.accessibility),
+      visualConsistency: clampScore(result.dimensions.visualConsistency),
+      intentCoverage: clampScore(result.dimensions.intentCoverage),
+      provenanceCoverage: clampScore(result.dimensions.provenanceCoverage),
+      generationReadiness: clampScore(result.dimensions.generationReadiness),
+    },
+    findings: result.findings.slice(0, 12).map(normalizeCoherenceFinding),
+    confidence: Math.max(0, Math.min(1, result.confidence)),
+  }
+}
+
+function normalizeCoherenceFinding(finding: CoherenceFinding): CoherenceFinding {
+  return {
+    dimension: finding.dimension,
+    severity: finding.severity,
+    message: finding.message,
+    rationale: finding.rationale,
+    affectedKeys: finding.affectedKeys || [],
+  }
+}
+
+function clampScore(score: number): number {
+  return Math.max(0, Math.min(100, Math.round(score)))
+}
+
 function dropNullValues<T extends Record<string, unknown>>(
   value: T | undefined
 ): T | undefined {
@@ -232,6 +306,65 @@ const componentStyleSchema = {
     radius: { type: 'string', enum: ['none', 'sm', 'md', 'lg', 'xl'] },
     shadow: { type: 'string', enum: ['none', 'sm', 'md', 'lg'] },
     border: { type: 'string', enum: ['none', 'subtle', 'strong'] },
+  },
+}
+
+const coherenceDimensionScoresSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: [
+    'accessibility',
+    'visualConsistency',
+    'intentCoverage',
+    'provenanceCoverage',
+    'generationReadiness',
+  ],
+  properties: {
+    accessibility: { type: 'number' },
+    visualConsistency: { type: 'number' },
+    intentCoverage: { type: 'number' },
+    provenanceCoverage: { type: 'number' },
+    generationReadiness: { type: 'number' },
+  },
+}
+
+const coherenceFindingSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['dimension', 'severity', 'message', 'rationale', 'affectedKeys'],
+  properties: {
+    dimension: {
+      type: 'string',
+      enum: [
+        'accessibility',
+        'visualConsistency',
+        'intentCoverage',
+        'provenanceCoverage',
+        'generationReadiness',
+      ],
+    },
+    severity: { type: 'string', enum: ['info', 'warn', 'error'] },
+    message: { type: 'string' },
+    rationale: { type: 'string' },
+    affectedKeys: {
+      type: 'array',
+      items: { type: 'string' },
+    },
+  },
+}
+
+const coherenceJudgeSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['score', 'dimensions', 'findings', 'confidence'],
+  properties: {
+    score: { type: 'number' },
+    dimensions: coherenceDimensionScoresSchema,
+    findings: {
+      type: 'array',
+      items: coherenceFindingSchema,
+    },
+    confidence: { type: 'number' },
   },
 }
 
