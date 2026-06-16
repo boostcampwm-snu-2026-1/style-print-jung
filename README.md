@@ -106,7 +106,7 @@ VITE_API_BASE_URL=
 
 `OPENAI_API_KEY`와 `V0_API_KEY`는 필수입니다. 누락되거나 API 호출이 실패하면 임의 데이터로 진행하지 않고 해당 API 요청이 실패합니다. `OPENAI_JUDGE_MODEL`은 coherence judge 전용 모델을 분리하고 싶을 때 사용하며, 없으면 `OPENAI_MODEL`을 사용합니다.
 
-`WEB_ORIGIN`은 쉼표로 여러 frontend origin을 지정할 수 있습니다. 예를 들어 Vercel production URL과 preview URL을 함께 허용해야 하면 `https://style-print-jung.vercel.app,https://style-print-jung-git-dev.vercel.app`처럼 설정합니다.
+`WEB_ORIGIN`은 쉼표로 여러 frontend origin을 지정할 수 있습니다. 예를 들어 Vercel production URL과 preview URL을 함께 허용해야 하면 `https://style-print.vercel.app,https://style-print-git-dev.vercel.app`처럼 설정합니다.
 
 ## 주요 흐름
 
@@ -173,7 +173,7 @@ npm run smoke:deploy
 
 ```bash
 SMOKE_API_BASE_URL=https://style-print-jung-api.up.railway.app \
-SMOKE_WEB_BASE_URL=https://style-print-jung.vercel.app \
+SMOKE_WEB_BASE_URL=https://style-print.vercel.app \
 npm run smoke:deploy
 ```
 
