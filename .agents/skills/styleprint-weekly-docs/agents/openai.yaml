@@ -1,0 +1,4 @@
+interface:
+  display_name: "StylePrint Weekly Docs"
+  short_description: "Draft and update StylePrint weekly wiki docs"
+  default_prompt: "Use $styleprint-weekly-docs to create or update the next StylePrint weekly wiki document."

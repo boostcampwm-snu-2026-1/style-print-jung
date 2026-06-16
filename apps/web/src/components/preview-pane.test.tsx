@@ -1,4 +1,10 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import { PreviewPane } from './preview-pane'
 
@@ -25,6 +31,26 @@ describe('PreviewPane 컴포넌트', () => {
       '/generated-previews/preview-1/index.html'
     )
     expect(screen.queryByText('Building preview...')).not.toBeInTheDocument()
+  })
+
+  test('preview zoom 옵션으로 iframe 표시 배율을 조정한다', () => {
+    render(
+      <PreviewPane
+        id="preview-zoom"
+        code=""
+        previewUrl="/generated-previews/preview-zoom/index.html"
+      />
+    )
+
+    const zoomSelect = screen.getByLabelText('Preview zoom')
+    expect(zoomSelect).toHaveValue('1')
+
+    fireEvent.change(zoomSelect, { target: { value: '0.75' } })
+
+    expect(zoomSelect).toHaveValue('0.75')
+    expect(screen.getByTitle('Generated UI preview')).toHaveStyle({
+      transform: 'scale(0.75)',
+    })
   })
 
   // 4.4 동작 테스트

@@ -39,9 +39,15 @@ export function CodeViewer({ code, language = 'tsx' }: CodeViewerProps) {
   const highlightedCode = highlightSyntax(code)
 
   return (
-    <div className="relative">
+    <div className="relative overflow-hidden rounded-lg border bg-[#151826] shadow-[0_18px_45px_rgba(15,23,42,0.18)]">
+      <div className="flex items-center gap-2 border-b border-white/10 bg-white/5 px-4 py-3 text-xs font-semibold text-slate-300">
+        <span className="h-2.5 w-2.5 rounded-full bg-[#ff5c7a]" />
+        <span className="h-2.5 w-2.5 rounded-full bg-[#f59e0b]" />
+        <span className="h-2.5 w-2.5 rounded-full bg-[#10b981]" />
+        <span className="ml-2">generated-component.{language}</span>
+      </div>
       {/* Actions */}
-      <div className="absolute right-4 top-4 flex gap-2 z-10">
+      <div className="absolute right-4 top-2.5 z-10 flex gap-2">
         <Button
           variant="secondary"
           size="sm"
@@ -72,7 +78,7 @@ export function CodeViewer({ code, language = 'tsx' }: CodeViewerProps) {
       </div>
 
       {/* Code Display */}
-      <ScrollArea className="h-[500px] rounded-lg border bg-zinc-950">
+      <ScrollArea className="h-[500px] bg-zinc-950">
         <pre className="p-4 text-sm font-mono text-zinc-100">
           <code dangerouslySetInnerHTML={{ __html: highlightedCode }} />
         </pre>

@@ -329,6 +329,67 @@ describe('/api/recipes/recommend', () => {
     expect(body.recipes?.[0]?.name).toBe('Unified Style')
     expect(new Set(Object.values(body.recipes?.[0]?.chosen || {})).size).toBe(1)
   })
+
+  test('reserves a single-source baseline and fills the rest with distinct multi-source mixes', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/recipes/recommend',
+      payload: {
+        facetPacks: [
+          createFacetPack('ref-1'),
+          createFacetPack('ref-2'),
+          createFacetPack('ref-3'),
+          createFacetPack('ref-4'),
+          createFacetPack('ref-5'),
+        ],
+      },
+    })
+
+    const body = response.json() as RecommendRecipesResponse
+
+    expect(response.statusCode).toBe(200)
+    expect(body.recipes).toHaveLength(3)
+
+    // Slot 0 is the safest single-source baseline; coherence inherently favors
+    // it, so it must not crowd out the mix slots.
+    expect(body.recipes?.[0]?.name).toBe('Unified Style')
+    expect(new Set(Object.values(body.recipes?.[0]?.chosen || {})).size).toBe(1)
+
+    // Remaining slots are genuine multi-source mixes, ranked among themselves.
+    const mixes = body.recipes?.slice(1) || []
+    mixes.forEach((recipe) => {
+      expect(
+        new Set(Object.values(recipe.chosen).filter(Boolean)).size
+      ).toBeGreaterThanOrEqual(2)
+    })
+
+    // The mixes should be different combinations, not duplicates.
+    const mixSourceSets = mixes.map((recipe) =>
+      [...new Set(Object.values(recipe.chosen).filter(Boolean))].sort().join(',')
+    )
+    expect(new Set(mixSourceSets).size).toBe(mixSourceSets.length)
+  })
+
+  test('uses no more than ten reference packs for recommendations', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/recipes/recommend',
+      payload: {
+        facetPacks: Array.from({ length: 11 }, (_item, index) =>
+          createFacetPack(`ref-${index + 1}`)
+        ),
+      },
+    })
+
+    const body = response.json() as RecommendRecipesResponse
+
+    expect(response.statusCode).toBe(200)
+    expect(
+      body.recipes?.some((recipe) =>
+        Object.values(recipe.chosen).includes('ref-11')
+      )
+    ).toBe(false)
+  })
 })
 
 function trackPreviewId(id: string): string {

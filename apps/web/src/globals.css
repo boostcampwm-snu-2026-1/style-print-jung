@@ -4,25 +4,25 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
+    --background: 225 38% 97%;
+    --foreground: 220 39% 11%;
     --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
+    --card-foreground: 220 39% 11%;
     --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
-    --primary: 222.2 47.4% 11.2%;
+    --popover-foreground: 220 39% 11%;
+    --primary: 347 100% 63%;
     --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
+    --secondary: 214 32% 93%;
+    --secondary-foreground: 220 39% 11%;
+    --muted: 210 40% 96%;
+    --muted-foreground: 215 19% 42%;
+    --accent: 345 100% 95%;
+    --accent-foreground: 345 80% 39%;
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 222.2 84% 4.9%;
+    --border: 211 36% 89%;
+    --input: 211 36% 89%;
+    --ring: 347 100% 63%;
     --radius: 0.5rem;
   }
 
@@ -54,6 +54,95 @@
     @apply border-border;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground antialiased;
+    background:
+      linear-gradient(135deg, rgba(255, 92, 122, 0.1), transparent 28%),
+      linear-gradient(180deg, #f6f7fb 0%, #f8fafc 46%, #ffffff 100%);
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+
+  ::selection {
+    background: rgba(255, 92, 122, 0.22);
+    color: #111827;
+  }
+}
+
+@layer components {
+  .app-surface {
+    @apply rounded-lg border bg-card/95 shadow-sm;
+    box-shadow: 0 18px 45px rgba(15, 23, 42, 0.08);
+  }
+
+  .interactive-card {
+    @apply transition-all duration-300;
+  }
+
+  .preview-canvas {
+    background:
+      linear-gradient(90deg, rgba(219, 226, 234, 0.42) 1px, transparent 1px),
+      linear-gradient(180deg, rgba(219, 226, 234, 0.42) 1px, transparent 1px),
+      #ffffff;
+    background-size: 24px 24px;
+  }
+
+  .empty-state {
+    @apply rounded-lg border border-dashed bg-muted/45 p-8 text-center text-muted-foreground;
+  }
+}
+
+@layer utilities {
+  .animate-fade-up {
+    animation: fade-up 420ms ease-out both;
+  }
+
+  .animate-soft-pulse {
+    animation: soft-pulse 1.6s ease-in-out infinite;
+  }
+
+  .shadow-accent {
+    box-shadow: 0 16px 35px rgba(255, 66, 103, 0.24);
+  }
+
+  .text-balance {
+    text-wrap: balance;
+  }
+}
+
+@media (hover: hover) {
+  .interactive-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 22px 55px rgba(15, 23, 42, 0.12);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes soft-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
   }
 }

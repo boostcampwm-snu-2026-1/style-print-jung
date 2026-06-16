@@ -30,8 +30,8 @@ export function FacetPackViewer({ facetPack, reference }: FacetPackViewerProps) 
   const referenceImageSrc = getReferenceImageSrc(reference)
 
   return (
-    <Card className="overflow-hidden">
-      <CardHeader className="pb-3">
+    <Card className="interactive-card overflow-hidden border-[#dbe2ea]">
+      <CardHeader className="bg-[linear-gradient(135deg,#ffffff,#fff7fa)] pb-3">
         <div className="flex items-center justify-between">
           <CardTitle className="text-base">
             Ref #{facetPack.refId.slice(0, 6)}
@@ -40,7 +40,7 @@ export function FacetPackViewer({ facetPack, reference }: FacetPackViewerProps) 
             <img
               src={referenceImageSrc}
               alt="Reference thumbnail"
-              className="w-12 h-12 object-cover rounded-md"
+              className="h-12 w-12 rounded-md border object-cover shadow-sm"
             />
           )}
         </div>
@@ -61,10 +61,10 @@ export function FacetPackViewer({ facetPack, reference }: FacetPackViewerProps) 
               {colorTokens.map((token) => (
                 <div
                   key={token.id}
-                  className="flex items-center gap-2 px-2 py-1 bg-muted rounded-md"
+                  className="flex items-center gap-2 rounded-md border bg-white px-2 py-1 shadow-sm"
                 >
                   <div
-                    className="w-5 h-5 rounded border"
+                    className="h-5 w-5 rounded border shadow-inner"
                     style={{ backgroundColor: token.value.hex }}
                   />
                   <span className="text-xs">{token.value.role}</span>

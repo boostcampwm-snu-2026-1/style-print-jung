@@ -12,6 +12,13 @@ import { adjustForContrast, calculateContrastRatio } from './color-extractor'
 
 export const COHERENCE_EVALUATOR_VERSION = 'rules-v2'
 
+// Max points a fully clashing multi-source mix can lose to mood disharmony.
+// A single shared keyword no longer earns full marks; the penalty scales with
+// how far the selected sources' moods diverge (1 - average pairwise Sørensen
+// -Dice similarity). Dice rewards partial overlap generously, so well-aligned
+// mixes land in the 90s while genuinely clashing ones drop toward 70.
+const SOURCE_HARMONY_WEIGHT = 30
+
 const coherenceDimensions: CoherenceDimension[] = [
   'accessibility',
   'visualConsistency',
@@ -359,17 +366,30 @@ function addSourceHarmonyFindings(
 
   if (sources.length < 2) return
 
-  const sharedMood = getSharedMoodKeywords(sources.map((source) => source.moodKeywords))
-  const hasMoodEvidence = sources.every((source) => source.moodKeywords.length > 0)
+  const moodGroups = sources.map((source) => source.moodKeywords)
+  const hasMoodEvidence = moodGroups.every((group) => group.length > 0)
 
-  if (hasMoodEvidence && sharedMood.length === 0) {
-    addFinding({
-      dimension: 'sourceHarmony',
-      severity: 'warn',
-      message: 'Selected references do not share mood keywords',
-      rationale: 'Mixes from unrelated moods need stronger reconciliation before generation.',
-      affectedKeys: ['styleContext.moodKeywords'],
-    }, 10)
+  if (hasMoodEvidence) {
+    // Graded mood harmony: a mix that only overlaps on one keyword (e.g. every
+    // source says "modern" but otherwise clashes) is penalized far more than a
+    // mix whose moods genuinely align. Well-aligned mixes stay close to a
+    // unified single-source recipe; clashing mixes drop below it.
+    const similarity = averagePairwiseMoodSimilarity(moodGroups)
+    const penalty = Math.round((1 - similarity) * SOURCE_HARMONY_WEIGHT)
+
+    if (penalty > 0) {
+      const sharedMood = getSharedMoodKeywords(moodGroups)
+      addFinding({
+        dimension: 'sourceHarmony',
+        severity: similarity === 0 ? 'warn' : 'info',
+        message:
+          sharedMood.length === 0
+            ? 'Selected references do not share mood keywords'
+            : `Selected references only partially share mood (${sharedMood.join(', ')})`,
+        rationale: 'Mixes from divergent moods need more reconciliation to feel cohesive.',
+        affectedKeys: ['styleContext.moodKeywords'],
+      }, penalty)
+    }
   }
 
   const uniqueSourceCount = new Set(sources.map((source) => source.refId)).size
@@ -382,6 +402,38 @@ function addSourceHarmonyFindings(
       affectedKeys: ['chosen'],
     }, 5)
   }
+}
+
+function averagePairwiseMoodSimilarity(keywordGroups: string[][]): number {
+  const sets = keywordGroups.map(
+    (group) => new Set(group.map((value) => value.trim().toLowerCase()).filter(Boolean))
+  )
+
+  let total = 0
+  let pairs = 0
+  for (let i = 0; i < sets.length; i += 1) {
+    for (let j = i + 1; j < sets.length; j += 1) {
+      total += diceSimilarity(sets[i], sets[j])
+      pairs += 1
+    }
+  }
+
+  return pairs === 0 ? 1 : total / pairs
+}
+
+// Sørensen–Dice: 2|A∩B| / (|A|+|B|). Weighs shared keywords more heavily than
+// Jaccard (which divides by the union), so a mix that shares its core mood
+// scores high even when each source also carries a few unique descriptors.
+function diceSimilarity(a: Set<string>, b: Set<string>): number {
+  if (a.size === 0 && b.size === 0) return 1
+  if (a.size === 0 || b.size === 0) return 0
+
+  let intersection = 0
+  a.forEach((value) => {
+    if (b.has(value)) intersection += 1
+  })
+
+  return (2 * intersection) / (a.size + b.size)
 }
 
 function getSharedMoodKeywords(keywordGroups: string[][]): string[] {

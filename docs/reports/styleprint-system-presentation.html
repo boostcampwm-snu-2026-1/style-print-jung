@@ -1,0 +1,1108 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>StylePrint System Presentation</title>
+  <style>
+    * { box-sizing: border-box; }
+    :root {
+      --ink: #111827;
+      --muted: #64748b;
+      --line: #dbe2ea;
+      --page: #f6f7fb;
+      --panel: #ffffff;
+      --dark: #151826;
+      --accent: #ff5c7a;
+      --accent-strong: #ff4267;
+      --blue: #2563eb;
+      --green: #10b981;
+      --amber: #f59e0b;
+    }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background: var(--page);
+      color: #1f2937;
+      font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+      font-size: 16px;
+      line-height: 1.55;
+    }
+    .deck {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 28px;
+    }
+    .slide {
+      position: relative;
+      min-height: 720px;
+      margin: 0 0 28px;
+      padding: 44px 52px;
+      overflow: hidden;
+      border: 1px solid #e5e7eb;
+      background: var(--panel);
+      box-shadow: 0 18px 45px rgba(15, 23, 42, .08);
+    }
+    .cover {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      color: #fff;
+      background: var(--dark);
+    }
+    .cover-badge {
+      width: fit-content;
+      padding: 5px 12px;
+      border: 1px solid rgba(255, 255, 255, .25);
+      border-radius: 999px;
+      color: #cbd5e1;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+    .cover-badge {
+      font-size: 11px;
+      letter-spacing: 0;
+      text-transform: none;
+    }
+    .cover h1 {
+      max-width: 920px;
+      margin: 28px 0 16px;
+      font-size: 58px;
+      line-height: 1.08;
+      letter-spacing: 0;
+    }
+    .cover h1 span { color: var(--accent); }
+    .cover p {
+      max-width: 760px;
+      color: #cbd5e1;
+      font-size: 19px;
+    }
+    .course-info {
+      display: grid;
+      gap: 14px;
+      max-width: 760px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      color: #cbd5e1;
+      font-size: 22px;
+      font-weight: 700;
+      line-height: 1.45;
+    }
+    .course-info .student {
+      color: #e5e7eb;
+      font-size: 16px;
+      font-weight: 600;
+    }
+    h2 {
+      margin: 16px 0 18px;
+      padding-bottom: 10px;
+      border-bottom: 3px solid var(--accent);
+      color: var(--ink);
+      font-size: 30px;
+      line-height: 1.25;
+      letter-spacing: 0;
+    }
+    h3 {
+      margin: 22px 0 10px;
+      color: #334155;
+      font-size: 17px;
+    }
+    p { margin: 0 0 12px; }
+    ul { margin: 8px 0 0; padding-left: 18px; }
+    li { margin: 5px 0; }
+    code {
+      padding: 1px 5px;
+      border-radius: 5px;
+      background: #f1f5f9;
+      color: #0f172a;
+      font-size: .92em;
+    }
+    .slide-no {
+      position: absolute;
+      right: 24px;
+      bottom: 18px;
+      color: #94a3b8;
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .metric-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+      margin: 20px 0 22px;
+    }
+    .metric {
+      min-height: 126px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 16px;
+      background: #fff;
+    }
+    .metric.highlight {
+      border-color: var(--dark);
+      background: var(--dark);
+      color: #fff;
+    }
+    .metric-label {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+    .highlight .metric-label { color: #cbd5e1; }
+    .metric-value {
+      margin-top: 5px;
+      color: var(--accent-strong);
+      font-size: 28px;
+      font-weight: 900;
+      line-height: 1.15;
+    }
+    .metric.highlight .metric-value { color: #fff; }
+    .metric-desc {
+      margin-top: 7px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+    .highlight .metric-desc { color: var(--accent-strong); }
+    .summary-box.callout-dark,
+    .card.callout-dark,
+    .matrix-card.callout-dark {
+      border-color: var(--dark);
+      background: var(--dark);
+      color: #fff;
+    }
+    .summary-box.callout-dark strong,
+    .summary-box.callout-dark h3,
+    .card.callout-dark h3,
+    .matrix-card.callout-dark h3,
+    .matrix-card.callout-dark strong,
+    .scenario-flow.callout-dark h3,
+    .scenario-flow.callout-dark strong {
+      color: #fff;
+    }
+    .summary-box.callout-dark ul,
+    .summary-box.callout-dark li,
+    .card.callout-dark ul,
+    .card.callout-dark li,
+    .matrix-card.callout-dark ul,
+    .matrix-card.callout-dark li,
+    .summary-box.callout-dark .metric-desc,
+    .card.callout-dark .metric-desc,
+    .matrix-card.callout-dark .metric-desc,
+    .summary-box.callout-dark .body,
+    .card.callout-dark .body,
+    .matrix-card.callout-dark .body {
+      color: var(--accent-strong);
+    }
+    .summary-box.callout-dark code,
+    .card.callout-dark code,
+    .matrix-card.callout-dark code {
+      background: rgba(255, 255, 255, .14);
+      color: #fff;
+    }
+    .scenario-flow {
+      margin: 18px 0 10px;
+      padding: 20px 20px 18px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #f8fafc;
+      color: var(--ink);
+    }
+    .scenario-flow h3 {
+      margin: 0;
+      color: var(--ink);
+      font-size: 18px;
+    }
+    .scenario-flow .scenario-subtitle {
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+    .scenario-road {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 14px;
+    }
+    .scenario-step {
+      position: relative;
+      min-height: 108px;
+      padding: 14px 14px 12px;
+      border: 1px solid #dbe2ea;
+      border-radius: 8px;
+      background: #fff;
+    }
+    .scenario-step:not(:last-child)::after {
+      content: "→";
+      position: absolute;
+      top: 50%;
+      right: -13px;
+      transform: translateY(-50%);
+      color: #94a3b8;
+      font-size: 19px;
+      font-weight: 700;
+    }
+    .scenario-step .step-no {
+      color: var(--accent-strong);
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: .02em;
+    }
+    .scenario-step strong {
+      display: block;
+      margin-top: 8px;
+      color: var(--ink);
+      font-size: 15px;
+      line-height: 1.25;
+    }
+    .scenario-step p {
+      margin: 6px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+    .scenario-panels {
+      display: grid;
+      grid-template-columns: 1.05fr 1.3fr 1fr;
+      gap: 12px;
+      margin-top: 14px;
+    }
+    .scenario-panel {
+      min-height: 148px;
+      padding: 14px 16px;
+      border: 1px solid #dbe2ea;
+      border-radius: 8px;
+      background: #fff;
+    }
+    .scenario-panel h4 {
+      margin: 0 0 8px;
+      color: var(--ink);
+      font-size: 16px;
+    }
+    .scenario-panel ul {
+      margin: 0;
+      padding-left: 18px;
+    }
+    .scenario-panel li {
+      color: var(--muted);
+      line-height: 1.5;
+    }
+    .scenario-panel code {
+      background: #eef2f7;
+      color: #0f172a;
+    }
+    .scenario-foot {
+      margin-top: 12px;
+      padding: 12px 14px;
+      border-radius: 8px;
+      background: #eef2f7;
+      color: #334155;
+      font-size: 14px;
+      font-weight: 600;
+    }
+    .formula.dark {
+      border-color: var(--dark);
+      background: var(--dark);
+      color: #fff;
+    }
+    .summary-box,
+    .insight-box,
+    .warning {
+      margin: 16px 0;
+      padding: 15px 18px;
+      border: 1px solid #dbe2ea;
+      border-radius: 8px;
+      background: #f8fafc;
+      font-size: 15px;
+    }
+    .two-col {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 24px;
+      align-items: start;
+    }
+    .three-col {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+    }
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 18px;
+      background: #fff;
+    }
+    .card h3 { margin-top: 0; }
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      width: fit-content;
+      margin: 0 0 9px;
+      padding: 3px 9px;
+      border-radius: 999px;
+      background: #ffe6eb;
+      color: #be123c;
+      font-size: 12px;
+      font-weight: 800;
+    }
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(130px, 1fr));
+      gap: 10px;
+      margin: 18px 0 16px;
+    }
+    .flow-step {
+      min-height: 142px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px;
+      background: #f8fafc;
+    }
+    .flow-code {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 28px;
+      height: 28px;
+      margin-bottom: 9px;
+      border-radius: 999px;
+      background: var(--accent);
+      color: #fff;
+      font-size: 12px;
+      font-weight: 900;
+    }
+    .flow-title {
+      color: var(--ink);
+      font-weight: 900;
+      line-height: 1.35;
+    }
+    .flow-copy {
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+    .timeline {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      font-size: 14px;
+    }
+    .timeline th {
+      padding: 10px 12px;
+      background: var(--dark);
+      color: #fff;
+      text-align: left;
+    }
+    .timeline td {
+      padding: 11px 12px;
+      border-bottom: 1px solid #e5e7eb;
+      vertical-align: top;
+    }
+    .timeline tr:nth-child(even) td { background: #f8fafc; }
+    .diagram {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 14px;
+      margin-top: 18px;
+    }
+    .diagram-col {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .node {
+      min-height: 76px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px;
+      background: #fff;
+    }
+    .node .name {
+      font-weight: 900;
+      color: inherit;
+    }
+    .node .desc {
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .arrow {
+      align-self: center;
+      color: var(--accent-strong);
+      font-weight: 900;
+    }
+    .pipeline-wide {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: 10px;
+      margin: 18px 0;
+    }
+    .pipeline-node {
+      min-height: 124px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 13px;
+      background: #f8fafc;
+    }
+    .pipeline-node.emphasis {
+      border-color: var(--dark);
+      background: var(--dark);
+      color: #fff;
+    }
+    .pipeline-node.emphasis .body {
+      color: #cbd5e1;
+    }
+    .pipeline-node .step {
+      color: var(--accent-strong);
+      font-size: 12px;
+      font-weight: 900;
+      text-transform: uppercase;
+    }
+    .pipeline-node .title {
+      margin-top: 7px;
+      color: inherit;
+      font-weight: 900;
+      line-height: 1.3;
+    }
+    .pipeline-node .body {
+      margin-top: 7px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+    .matrix-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+      margin-top: 18px;
+    }
+    .matrix-card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 16px;
+      background: #f8fafc;
+    }
+    .matrix-card h3 {
+      margin-top: 0;
+    }
+    .formula {
+      margin: 14px 0;
+      padding: 14px 16px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #f8fafc;
+      color: var(--ink);
+      font-size: 18px;
+      font-weight: 900;
+      text-align: center;
+    }
+    .score-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 14px;
+    }
+    .score-card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      background: #fff;
+      font-size: 13px;
+    }
+    .score-card b {
+      display: block;
+      margin-bottom: 5px;
+      color: var(--ink);
+    }
+    .test-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 18px;
+    }
+    .test-card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px;
+      background: #f8fafc;
+      min-height: 150px;
+    }
+    .test-card h3 {
+      margin-top: 0;
+    }
+    .test-card ul {
+      font-size: 13px;
+    }
+    @media (max-width: 900px) {
+      .deck { padding: 12px; }
+      .slide { min-height: auto; padding: 28px 20px 72px; }
+      .cover h1 { font-size: 38px; }
+      .metric-grid,
+      .two-col,
+      .three-col,
+      .diagram,
+      .pipeline-wide,
+      .matrix-grid,
+      .score-grid,
+      .test-grid,
+      .flow { grid-template-columns: 1fr; }
+    }
+    @media print {
+      body { background: #fff; }
+      .deck { max-width: none; padding: 0; }
+      .slide {
+        width: 100vw;
+        min-height: 100vh;
+        margin: 0;
+        border: 0;
+        box-shadow: none;
+        page-break-after: always;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="deck">
+    <section class="slide cover" id="slide-1">
+      <div class="cover-badge">26-1 컴퓨터 및 VLSI특강 (AI를 활용한 front-end 개발)</div>
+      <h1>레퍼런스 스크린샷에서<br><span>React + Tailwind UI</span>까지</h1>
+      <div class="course-info">
+        <div class="student">2025-25825(지능정보융합학과 이정)</div>
+      </div>
+      <div class="slide-no">01</div>
+    </section>
+
+    <section class="slide" id="slide-2">
+      <h2>문제 정의: AI 개발에서 디자인 판단과 추적 가능성</h2>
+      <div class="metric-grid">
+        <div class="metric highlight">
+          <div class="metric-label">배경</div>
+          <div class="metric-value">1인 AI 개발</div>
+          <div class="metric-desc">기획 · 디자인 · 개발 역할 통합 · 바이브코딩 확산</div>
+        </div>
+        <div class="metric highlight">
+          <div class="metric-label">핵심 문제</div>
+          <div class="metric-value">좋은 디자인 판단</div>
+          <div class="metric-desc">비전공자가 reference의 어떤 요소가 좋은지 해석하기 어려움</div>
+        </div>
+        <div class="metric highlight">
+          <div class="metric-label">추적 가능성</div>
+          <div class="metric-value">AI 적용 원리 불투명</div>
+          <div class="metric-desc">어떤 facet이 어떤 원리로 생성 UI에 반영됐는지 확인 어려움</div>
+        </div>
+      </div>
+      <div class="summary-box">
+        <strong>StylePrint 접근</strong>
+        <ul>
+          <li>UI 레퍼런스 스크린샷 → 디자인 facet 추출</li>
+          <li>사용자 조합 → <b>IntentSpec</b> 정규화</li>
+          <li>충돌 검증 → React + Tailwind 코드 생성 → 감사/출처 추적</li>
+        </ul>
+      </div>
+      <div class="slide-no">02</div>
+    </section>
+
+    <section class="slide" id="slide-3">
+      <h2>데모 시나리오: 레퍼런스 업로드부터 결과 미리보기까지</h2>
+      <div class="flow">
+        <div class="flow-step">
+          <div class="flow-code">1</div>
+          <div class="flow-title">레퍼런스 업로드</div>
+          <div class="flow-copy">UI 스크린샷 2-3장</div>
+        </div>
+        <div class="flow-step">
+          <div class="flow-code">2</div>
+          <div class="flow-title">Facet 추출</div>
+          <div class="flow-copy">색상 · 타이포그래피 · 레이아웃 · 간격 · 컴포넌트 스타일</div>
+        </div>
+        <div class="flow-step">
+          <div class="flow-code">3</div>
+          <div class="flow-title">Recipe 구성</div>
+          <div class="flow-copy">추천 recipe · facet별 출처 수동 선택</div>
+        </div>
+        <div class="flow-step">
+          <div class="flow-code">4</div>
+          <div class="flow-title">일관성 검증</div>
+          <div class="flow-copy">대비 · 밀도 · 간격 불일치</div>
+        </div>
+        <div class="flow-step">
+          <div class="flow-code">5</div>
+          <div class="flow-title">생성 및 검토</div>
+          <div class="flow-copy">미리보기 · 코드 · 감사 · 출처 추적</div>
+        </div>
+      </div>
+      <div class="slide-no">03</div>
+    </section>
+
+    <section class="slide" id="slide-4">
+      <h2>최종 결과: 미리보기 · 코드 · 감사</h2>
+      <div class="metric-grid">
+        <div class="metric highlight">
+          <div class="metric-label">결과</div>
+          <div class="metric-value">미리보기 URL</div>
+          <div class="metric-desc"><code>/generated-previews/:id/index.html</code> 산출물</div>
+        </div>
+        <div class="metric highlight">
+          <div class="metric-label">결과</div>
+          <div class="metric-value">코드 파일</div>
+          <div class="metric-desc">React entry · TSX/JS/CSS · 선택된 UI 파일</div>
+        </div>
+        <div class="metric highlight">
+          <div class="metric-label">결과</div>
+          <div class="metric-value">감사 리포트</div>
+          <div class="metric-desc">IntentSpec 반영도 · diff · 출처 배지</div>
+        </div>
+      </div>
+      <div class="summary-box">
+        <strong>데모에서 직접 확인</strong>
+        <ul>
+          <li>미리보기 iframe 렌더링</li>
+          <li>생성 코드 탭</li>
+          <li>감사/출처 추적 탭</li>
+        </ul>
+      </div>
+      <div class="summary-box">
+        <strong>기존 방식 대비</strong>
+        <ul>
+          <li>수동 스타일 추정 → 레퍼런스별 facet 구조화</li>
+          <li>출처 불명 조합 → facet 출처 추적</li>
+          <li>생성 후 확인만 수행 → 생성 전/후 검증 루프</li>
+        </ul>
+      </div>
+      <div class="slide-no">04</div>
+    </section>
+
+    <section class="slide" id="slide-5">
+      <h2>시스템 아키텍처: 컴포넌트와 책임</h2>
+      <div class="diagram">
+        <div class="diagram-col">
+          <div class="node">
+            <div class="name">사용자</div>
+            <div class="desc">레퍼런스 업로드 · recipe 선택 · 생성 요청</div>
+          </div>
+          <div class="arrow">↓</div>
+          <div class="node">
+            <div class="name">프론트엔드</div>
+            <div class="desc">Vite React · 단계 UI · 미리보기 iframe · 감사/출처 탭</div>
+          </div>
+        </div>
+        <div class="diagram-col">
+          <div class="node">
+            <div class="name">Fastify API</div>
+            <div class="desc">타입 기반 REST API · multipart · 작업 상태 polling · CORS</div>
+          </div>
+          <div class="arrow">↓</div>
+          <div class="node">
+            <div class="name">워크플로 상태</div>
+            <div class="desc">ReferenceAsset · FacetPack · IntentSpec · GeneratedCode · AuditReport</div>
+          </div>
+        </div>
+        <div class="diagram-col">
+          <div class="node">
+            <div class="name">도구 / 모델</div>
+            <div class="desc">sharp · OpenAI Responses API · v0 API · Playwright 스크린샷</div>
+          </div>
+          <div class="arrow">↓</div>
+          <div class="node">
+            <div class="name">실행 산출물</div>
+            <div class="desc">data/*.json · public/uploads · generated-previews · screenshot.png</div>
+          </div>
+        </div>
+      </div>
+      <div class="summary-box">
+        <strong>핵심 계약</strong>
+        <ul>
+          <li>공유 타입: <code>packages/shared/src/types.ts</code></li>
+          <li>API 호환성: <code>/api/...</code> 경로 · Vite proxy/Railway 배포 공통</li>
+          <li>MVP 저장소: JSON/local files · production 후보 DB/object storage</li>
+        </ul>
+      </div>
+      <div class="slide-no">05</div>
+    </section>
+
+    <section class="slide" id="slide-6">
+      <h2>전체 시스템 파이프라인</h2>
+      <div class="pipeline-wide">
+        <div class="pipeline-node emphasis">
+          <div class="step">01 입력</div>
+          <div class="title">레퍼런스 업로드</div>
+          <div class="body">PNG/JPEG/WebP/SVG · 최대 100MB · 업로드 메타데이터</div>
+        </div>
+        <div class="pipeline-node">
+          <div class="step">02 분석</div>
+          <div class="title">Facet 추출</div>
+          <div class="body">규칙 기반 색상 분석 + LLM 비전 facet 분석</div>
+        </div>
+        <div class="pipeline-node">
+          <div class="step">03 계획</div>
+          <div class="title">Recipe 순위화</div>
+          <div class="body">조합 후보 · 일관성 기준 정렬 · 출처 수 동률 기준</div>
+        </div>
+        <div class="pipeline-node">
+          <div class="step">04 검증</div>
+          <div class="title">IntentSpec 점검</div>
+          <div class="body">대비 · 밀도 · 커버리지 · 출처 · 소스 조화도</div>
+        </div>
+        <div class="pipeline-node">
+          <div class="step">05 생성</div>
+          <div class="title">React + Tailwind</div>
+          <div class="body">v0 동기 생성 · 작업 상태 polling · 생성 파일</div>
+        </div>
+        <div class="pipeline-node emphasis">
+          <div class="step">06 확인</div>
+          <div class="title">미리보기 + 감사</div>
+          <div class="body">iframe 산출물 · 스크린샷 · 코드 감사 · 출처 배지</div>
+        </div>
+      </div>
+      <table class="timeline">
+        <thead>
+          <tr><th>상태</th><th>생성 위치</th><th>다음 단계 입력</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>ReferenceAsset</code></td><td>업로드 API</td><td>이미지 data URL · 메타데이터</td></tr>
+          <tr><td><code>FacetPack</code></td><td>facet 추출</td><td>recipe 추천</td></tr>
+          <tr><td><code>IntentSpec</code></td><td>recipe 생성</td><td>일관성 평가 · 생성 프롬프트</td></tr>
+          <tr><td><code>GeneratedCode</code></td><td>v0 작업</td><td>미리보기 산출물 · 감사 분석</td></tr>
+        </tbody>
+      </table>
+      <div class="slide-no">06</div>
+    </section>
+
+    <section class="slide" id="slide-7">
+      <h2>사용자 시나리오: 화면 조작과 내부 처리</h2>
+      <div class="scenario-flow">
+        <h3>사용자 시나리오 한 줄 흐름</h3>
+        <div class="scenario-subtitle">화면에서는 단순한 업로드처럼 보이지만, 내부에서는 분석과 생성, 검증이 단계적으로 이어집니다.</div>
+        <div class="scenario-road">
+          <div class="scenario-step">
+            <div class="step-no">01</div>
+            <strong>사용자 입력</strong>
+            <p>레퍼런스 이미지를 올리고 추천 레시피를 고릅니다.</p>
+          </div>
+          <div class="scenario-step">
+            <div class="step-no">02</div>
+            <strong>웹 요청</strong>
+            <p><code>/api/references/upload</code>와 <code>/api/facets/extract</code>를 순서대로 호출합니다.</p>
+          </div>
+          <div class="scenario-step">
+            <div class="step-no">03</div>
+            <strong>패싯 정리</strong>
+            <p><code>ReferenceAsset</code>와 <code>FacetPack</code>을 만들고 디자인 특징을 구조화합니다.</p>
+          </div>
+          <div class="scenario-step">
+            <div class="step-no">04</div>
+            <strong>의도 정규화</strong>
+            <p><code>IntentSpec</code>으로 조합을 정리하고 coherence를 먼저 점검합니다.</p>
+          </div>
+          <div class="scenario-step">
+            <div class="step-no">05</div>
+            <strong>코드 생성</strong>
+            <p><code>/api/generate/v0</code>가 React + Tailwind UI를 만듭니다.</p>
+          </div>
+          <div class="scenario-step">
+            <div class="step-no">06</div>
+            <strong>감사 확인</strong>
+            <p><code>GeneratedCode</code>와 <code>AuditReport</code>로 결과와 출처를 확인합니다.</p>
+          </div>
+        </div>
+        <div class="scenario-panels">
+          <div class="scenario-panel">
+            <h4>사용자 관점</h4>
+            <ul>
+              <li>레퍼런스 업로드</li>
+              <li>추천 레시피 선택 또는 패싯 출처 직접 조정</li>
+              <li>미리보기, 코드, 감사를 순서대로 확인</li>
+            </ul>
+          </div>
+          <div class="scenario-panel">
+            <h4>내부 처리</h4>
+            <ul>
+              <li><code>sharp</code>와 OpenAI가 facet을 분담</li>
+              <li>중간 산출물은 <code>ReferenceAsset</code> → <code>FacetPack</code> → <code>IntentSpec</code> → <code>GeneratedCode</code> → <code>AuditReport</code>로 연결</li>
+              <li>생성 전에는 일관성, 생성 후에는 출처 추적을 확인</li>
+            </ul>
+          </div>
+          <div class="scenario-panel">
+            <h4>핵심 메시지</h4>
+            <ul>
+              <li>화면은 단순</li>
+              <li>내부는 분석 → 계획 → 생성 → 감사</li>
+              <li>결과보다 과정이 추적 가능하도록 설계</li>
+            </ul>
+          </div>
+        </div>
+        <div class="scenario-foot">한 장으로 보면, 사용자는 업로드와 확인만 하지만 시스템은 API와 tool을 거치며 단계별로 상태를 축적합니다.</div>
+      </div>
+      <div class="slide-no">07</div>
+    </section>
+
+    <section class="slide" id="slide-8">
+      <h2>사용 모델과 API 구성도</h2>
+      <div class="matrix-grid">
+        <div class="matrix-card">
+          <h3>OpenAI Responses API</h3>
+          <ul>
+            <li>URL: <code>/v1/responses</code></li>
+            <li>기본 모델: <code>gpt-4.1-mini</code></li>
+            <li>facet 분석: 이미지 입력 <code>detail: high</code> + JSON schema</li>
+            <li>코드 감사: 생성 코드 + IntentSpec 비교</li>
+            <li>일관성 judge: <code>OPENAI_JUDGE_MODEL</code> fallback</li>
+          </ul>
+        </div>
+        <div class="matrix-card">
+          <h3>v0 API</h3>
+          <ul>
+            <li>URL: <code>https://api.v0.dev/v1/chats</code></li>
+            <li>모델: <code>v0-mini</code></li>
+            <li>모드: <code>responseMode: sync</code></li>
+            <li>옵션: 이미지 생성 off · thinking off</li>
+            <li>출력: TSX/JS/CSS 파일 · 선택된 UI entry file</li>
+          </ul>
+        </div>
+        <div class="matrix-card">
+          <h3>Fastify API 경로</h3>
+          <ul>
+            <li><code>/api/references/upload</code> · 이미지 저장</li>
+            <li><code>/api/facets/extract</code> · FacetPack</li>
+            <li><code>/api/recipes/recommend</code> · recipe 순위화</li>
+            <li><code>/api/intents/evaluate</code> · 점수 + judge</li>
+            <li><code>/api/generate/v0</code> · 생성 작업</li>
+            <li><code>/api/audit/analyze</code> · FacetDiff</li>
+          </ul>
+        </div>
+        <div class="matrix-card">
+          <h3>로컬 도구</h3>
+          <ul>
+            <li><code>sharp</code> · 픽셀 기반 색상 추출</li>
+            <li><code>esbuild</code> · 미리보기 번들</li>
+            <li><code>Playwright</code> · 미리보기 스크린샷</li>
+            <li><code>Vitest</code> · API/컴포넌트 테스트</li>
+            <li><code>TypeScript shared types</code> · API 계약</li>
+          </ul>
+        </div>
+      </div>
+      <div class="slide-no">08</div>
+    </section>
+
+    <section class="slide" id="slide-9">
+      <h2>레퍼런스 분석 원리: 규칙 기반 + LLM</h2>
+      <div class="two-col">
+        <div class="card">
+          <span class="tag">규칙 기반</span>
+          <h3>결정적 추출</h3>
+          <ul>
+            <li>이미지 버퍼 → base64 data URL</li>
+            <li><code>sharp</code> 색상 샘플링 · 상위 6개 색상</li>
+            <li>의미 역할 부여: primary · secondary · background · surface · text</li>
+            <li>대비 비율 계산 · WCAG 기준 확인</li>
+            <li>업로드 메타데이터 · width/height context</li>
+          </ul>
+        </div>
+        <div class="card">
+          <span class="tag">LLM 비전</span>
+          <h3>구조화된 facet 분석</h3>
+          <ul>
+            <li>입력: 스크린샷 이미지 + 추출 palette</li>
+            <li>스키마 출력: typography · layout · spacing · componentStyle</li>
+            <li>mood keywords: 소스 조화도 계산 입력</li>
+            <li>strict JSON schema · 자유 형식 parsing 없음</li>
+            <li>confidence/evidence → 출처 배지</li>
+          </ul>
+        </div>
+      </div>
+      <div class="pipeline-wide">
+        <div class="pipeline-node"><div class="step">A</div><div class="title">이미지</div><div class="body">업로드 산출물</div></div>
+        <div class="pipeline-node"><div class="step">B</div><div class="title">규칙 색상</div><div class="body">palette + 역할</div></div>
+        <div class="pipeline-node"><div class="step">C</div><div class="title">LLM 비전</div><div class="body">레이아웃/글꼴/간격/스타일</div></div>
+        <div class="pipeline-node"><div class="step">D</div><div class="title">FacetPack</div><div class="body">토큰 + 분위기 + 근거</div></div>
+        <div class="pipeline-node"><div class="step">E</div><div class="title">Recipe 조합</div><div class="body">facet 출처 혼합</div></div>
+        <div class="pipeline-node"><div class="step">F</div><div class="title">IntentSpec</div><div class="body">정규화된 디자인 의도</div></div>
+      </div>
+      <div class="slide-no">09</div>
+    </section>
+
+    <section class="slide" id="slide-10">
+      <h2>에이전트 연결 방식: 라우트 기반 오케스트레이션</h2>
+      <div class="flow">
+        <div class="flow-step">
+          <div class="flow-code">1</div>
+          <div class="flow-title">업로드 Agent</div>
+          <div class="flow-copy">파일 검증 · 메타데이터 · 저장소 rollback</div>
+        </div>
+        <div class="flow-step">
+          <div class="flow-code">2</div>
+          <div class="flow-title">분석 Agent</div>
+          <div class="flow-copy">규칙 기반 색상 · OpenAI facet schema · FacetPack cache</div>
+        </div>
+        <div class="flow-step">
+          <div class="flow-code">3</div>
+          <div class="flow-title">계획 Agent</div>
+          <div class="flow-copy">후보 recipe · IntentSpec 정규화 · 출처 정보</div>
+        </div>
+        <div class="flow-step">
+          <div class="flow-code">4</div>
+          <div class="flow-title">검증 Agent</div>
+          <div class="flow-copy">rules-v2 점수 · 수정 계획 · shadow LLM judge</div>
+        </div>
+        <div class="flow-step">
+          <div class="flow-code">5</div>
+          <div class="flow-title">생성 Agent</div>
+          <div class="flow-copy">v0 생성 · 미리보기 산출물 · 감사 보고서</div>
+        </div>
+      </div>
+      <div class="summary-box callout-dark">
+        <strong>연결 구조</strong>
+        <ul>
+          <li>프레임워크: 별도 LangGraph/LangChain 없이 Fastify route + typed artifacts</li>
+          <li>상태 전달: <code>FacetPack → IntentSpec → GeneratedCode → AuditReport</code></li>
+          <li>비동기 경계: <code>generationJobs</code> in-memory queue + polling</li>
+          <li>피드백 루프: 일관성 피드백 버튼 → <code>/api/coherence/feedback</code></li>
+        </ul>
+      </div>
+      <div class="slide-no">10</div>
+    </section>
+
+    <section class="slide" id="slide-11">
+      <h2>일관성 점수 로직: 규칙 기반 기준</h2>
+      <div class="formula dark">일관성 점수 = clamp(100 - Σ dimension 감점)</div>
+      <div class="score-grid">
+        <div class="score-card"><b>접근성</b>text/background &lt; 4.5:1 · primary/background &lt; 3:1</div>
+        <div class="score-card"><b>시각 일관성</b>compact + body &lt; 14px · 간격/밀도 불일치</div>
+        <div class="score-card"><b>의도 커버리지</b>palette · typography · layout · spacing 누락</div>
+        <div class="score-card"><b>출처 커버리지</b>선택 source 근거 누락</div>
+        <div class="score-card"><b>소스 조화도</b>mood keyword Dice similarity · 낮은 confidence source</div>
+        <div class="score-card"><b>생성 준비도</b>빈 프롬프트 · 빈 화면 계획</div>
+      </div>
+      <div class="two-col">
+        <div class="summary-box">
+          <strong>수정 계획</strong>
+          <ul>
+            <li>대비 수정: 텍스트 색상을 WCAG AA 기준으로 조정</li>
+            <li>타이포그래피 수정: compact layout body 최소 14px</li>
+            <li>간격 수정: compact 4px · comfortable 8px</li>
+          </ul>
+        </div>
+        <div class="summary-box">
+          <strong>Recipe 순위화</strong>
+          <ul>
+            <li>후보 조합 ≤ 200</li>
+            <li>정렬: 일관성 점수 높은 순</li>
+            <li>tie-break: 섞인 source 수가 적은 순</li>
+          </ul>
+        </div>
+      </div>
+      <div class="slide-no">11</div>
+    </section>
+
+    <section class="slide" id="slide-12">
+      <h2>LLM Judge 로직: 보조 평가</h2>
+      <div class="pipeline-wide">
+        <div class="pipeline-node emphasis"><div class="step">1</div><div class="title">기준 평가</div><div class="body">규칙 finding · dimension score</div></div>
+        <div class="pipeline-node"><div class="step">2</div><div class="title">프롬프트</div><div class="body">rubric · checklist · calibration anchor</div></div>
+        <div class="pipeline-node"><div class="step">3</div><div class="title">OpenAI Judge</div><div class="body">ordinal rating · strict JSON</div></div>
+        <div class="pipeline-node"><div class="step">4</div><div class="title">정규화</div><div class="body">rating + checklist → 점수</div></div>
+        <div class="pipeline-node"><div class="step">5</div><div class="title">저장</div><div class="body">CoherenceJudgeResult</div></div>
+        <div class="pipeline-node emphasis"><div class="step">6</div><div class="title">피드백</div><div class="body">정확함 · 너무 높음 · 너무 낮음</div></div>
+      </div>
+      <div class="matrix-grid">
+        <div class="matrix-card callout-dark">
+          <h3>Judge 프롬프트 가드레일</h3>
+          <ul>
+            <li>version: <code>coherence-judge-v2</code></li>
+            <li>rating: strong · adequate · weak · fail</li>
+            <li>규칙 finding = 사실 힌트, 숫자 anchor 아님</li>
+            <li>출처 근거 임의 생성 금지</li>
+          </ul>
+        </div>
+        <div class="matrix-card">
+          <h3>운영 모드</h3>
+          <ul>
+            <li><code>judgeMode: shadow</code> frontend 평가 호출에 포함</li>
+            <li><code>primary</code> mode disabled</li>
+            <li>judge 실패 → warning log · baseline result 유지</li>
+            <li>feedback 저장: <code>coherence-feedback.json</code></li>
+          </ul>
+        </div>
+      </div>
+      <div class="slide-no">12</div>
+    </section>
+
+    <section class="slide" id="slide-13">
+      <h2>테스트 코드: API · 컴포넌트 · 프롬프트 · 스모크</h2>
+      <div class="test-grid">
+        <div class="test-card">
+          <h3>API / 산출물</h3>
+          <ul>
+            <li>preview html/js bundle 생성</li>
+            <li>허용된 preview file만 접근</li>
+            <li><code>/api/preview/build</code> 400/200</li>
+            <li>CORS origin headers</li>
+          </ul>
+        </div>
+        <div class="test-card">
+          <h3>일관성 / Recipe</h3>
+          <ul>
+            <li>대비 충돌 점수</li>
+            <li>커버리지/출처 공백</li>
+            <li>judge prompt version pin</li>
+            <li>recipe 정렬 + source 동률 기준</li>
+          </ul>
+        </div>
+        <div class="test-card">
+          <h3>프론트엔드 컴포넌트</h3>
+          <ul>
+            <li>PreviewPane iframe render</li>
+            <li>preview build API call</li>
+            <li>zoom option</li>
+            <li>error UI</li>
+          </ul>
+        </div>
+        <div class="test-card">
+          <h3>사용자 흐름</h3>
+          <ul>
+            <li>업로드 제한 문구</li>
+            <li>백엔드 ranked recipe 로드</li>
+            <li>일관성 평가 loading state</li>
+            <li>추천 실패 UI</li>
+          </ul>
+        </div>
+      </div>
+      <div class="summary-box callout-dark">
+        <strong>검증 명령</strong>
+        <ul>
+          <li><code>npm run test</code>: web Vitest + API Vitest</li>
+          <li><code>npm run typecheck</code>: API/Web TypeScript contract</li>
+          <li><code>npm run build</code>: production Vite build</li>
+          <li><code>npm run smoke:deploy</code>: deployed web/API smoke 후보</li>
+        </ul>
+      </div>
+      <div class="slide-no">13</div>
+    </section>
+
+  </main>
+  <script>
+    const slides = Array.from(document.querySelectorAll('.slide'));
+    function currentIndex() {
+      const middle = window.scrollY + window.innerHeight / 2;
+      return Math.max(0, slides.findIndex((slide) => {
+        const top = slide.offsetTop;
+        return middle >= top && middle < top + slide.offsetHeight;
+      }));
+    }
+    window.addEventListener('keydown', (event) => {
+      if (!['ArrowRight', 'ArrowDown', 'PageDown', ' ', 'ArrowLeft', 'ArrowUp', 'PageUp'].includes(event.key)) return;
+      const index = currentIndex();
+      const direction = ['ArrowLeft', 'ArrowUp', 'PageUp'].includes(event.key) ? -1 : 1;
+      const next = Math.min(slides.length - 1, Math.max(0, index + direction));
+      slides[next].scrollIntoView({ behavior: 'smooth', block: 'start' });
+      event.preventDefault();
+    });
+  </script>
+</body>
+</html>

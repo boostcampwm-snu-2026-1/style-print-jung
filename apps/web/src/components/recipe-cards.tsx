@@ -25,8 +25,8 @@ export function RecipeCards({
 }: RecipeCardsProps) {
   if (recipes.length === 0) {
     return (
-      <div className="text-center py-8 text-muted-foreground">
-        <Sparkles className="h-12 w-12 mx-auto mb-3 opacity-50" />
+      <div className="empty-state">
+        <Sparkles className="mx-auto mb-3 h-12 w-12 text-primary/70" />
         <p>No recipes available yet</p>
         <p className="text-sm">Extract facets from at least one reference</p>
       </div>
@@ -42,11 +42,19 @@ export function RecipeCards({
           <Card
             key={recipe.id}
             className={cn(
-              'cursor-pointer transition-all hover:shadow-md',
-              isSelected && 'ring-2 ring-primary'
+              'interactive-card relative cursor-pointer overflow-hidden transition-all',
+              isSelected
+                ? 'border-primary bg-[linear-gradient(180deg,#fff7fa,#ffffff)] ring-2 ring-primary/25'
+                : 'hover:border-primary/30'
             )}
             onClick={() => onSelectRecipe(recipe)}
           >
+            <div
+              className={cn(
+                'absolute inset-x-0 top-0 h-1 bg-[linear-gradient(90deg,#ff4267,#2563eb)] opacity-0 transition-opacity',
+                isSelected && 'opacity-100'
+              )}
+            />
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between">
                 <Badge variant={index === 0 ? 'default' : 'secondary'}>
@@ -55,7 +63,7 @@ export function RecipeCards({
                   {index === 2 && 'Creative'}
                 </Badge>
                 {isSelected && (
-                  <div className="h-6 w-6 rounded-full bg-primary flex items-center justify-center">
+                  <div className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-accent">
                     <Check className="h-4 w-4 text-primary-foreground" />
                   </div>
                 )}
@@ -115,7 +123,7 @@ export function RecipeCards({
               {/* Select Button */}
               <Button
                 variant={isSelected ? 'default' : 'outline'}
-                className="w-full mt-4"
+                className="mt-4 w-full"
                 onClick={(e) => {
                   e.stopPropagation()
                   onSelectRecipe(recipe)
@@ -145,14 +153,14 @@ function FacetSource({
   const referenceIndex = ref ? references.findIndex((reference) => reference.id === ref.id) + 1 : null
 
   return (
-    <div className="flex items-center justify-between">
+    <div className="flex items-center justify-between rounded-md px-2 py-1 transition-colors hover:bg-muted/60">
       <span className="text-muted-foreground">{label}</span>
       <div className="flex items-center gap-2 text-foreground">
         {referenceImageSrc && (
           <img
             src={referenceImageSrc}
             alt={ref?.filename || 'Reference thumbnail'}
-            className="h-6 w-8 rounded border object-cover"
+            className="h-6 w-8 rounded border object-cover shadow-sm"
           />
         )}
         <span>{referenceIndex ? `Ref ${referenceIndex}` : 'N/A'}</span>

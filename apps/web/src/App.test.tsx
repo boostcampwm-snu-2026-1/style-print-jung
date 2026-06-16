@@ -43,6 +43,16 @@ describe('App recipe recommendations', () => {
     vi.unstubAllGlobals()
   })
 
+  test('prompts users to upload no more than ten reference images', async () => {
+    vi.stubGlobal('fetch', vi.fn(handleSuccessfulRecipeFlow))
+
+    render(<App />)
+
+    expect(
+      await screen.findByText(/Upload up to 10 reference images/i)
+    ).toBeInTheDocument()
+  })
+
   test('loads recommended recipes from the API after facet extraction', async () => {
     const user = userEvent.setup()
     const fetchMock = vi.fn(handleSuccessfulRecipeFlow)
@@ -66,6 +76,67 @@ describe('App recipe recommendations', () => {
     expect(screen.getByText('100%')).toBeInTheDocument()
     expect(screen.queryByText('Color Accent Mix')).not.toBeInTheDocument()
     expect(screen.queryByText('Typography Focus')).not.toBeInTheDocument()
+  })
+
+  test('shows coherence evaluation loading state after selecting a recipe', async () => {
+    const user = userEvent.setup()
+    let resolveEvaluate: (response: Response) => void = () => {}
+    const evaluateResponse = new Promise<Response>((resolve) => {
+      resolveEvaluate = resolve
+    })
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+
+      if (url === '/api/intents/create') {
+        return Promise.resolve(jsonResponse({
+          success: true,
+          intentSpec: {
+            id: 'intent-1',
+            chosen: recommendedRecipes[0].chosen,
+            normalized: {},
+            provenance: [],
+            conflicts: [],
+            repairs: [],
+            history: [],
+            createdAt: 1,
+            targetExport: {
+              format: 'react-tailwind',
+              label: 'React + Tailwind',
+              description: 'Test target',
+            },
+          },
+        }))
+      }
+
+      if (url === '/api/intents/evaluate') {
+        return evaluateResponse
+      }
+
+      return handleSuccessfulRecipeFlow(input, init)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+
+    await screen.findByText('2 reference(s) uploaded')
+    await user.click(screen.getByRole('button', { name: /Extract Facets/i }))
+    await user.click(await screen.findByRole('button', { name: /Continue to Recipe Builder/i }))
+    await user.click(await screen.findByRole('button', { name: /Select Recipe/i }))
+
+    expect(await screen.findAllByText(/Evaluating/i)).not.toHaveLength(0)
+    expect(screen.getByRole('button', { name: /Checking coherence/i })).toBeDisabled()
+
+    resolveEvaluate(jsonResponse({
+      success: true,
+      conflicts: [],
+      repairs: [],
+      coherenceScore: 88,
+      judgeResult: null,
+    }))
+
+    await waitFor(() => {
+      expect(screen.queryByText(/Checking coherence/i)).not.toBeInTheDocument()
+    })
   })
 
   test('shows recommendation failure without hardcoded fallback recipes', async () => {

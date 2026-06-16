@@ -42,8 +42,8 @@ export function ManualFacetSelector({
 }: ManualFacetSelectorProps) {
   if (facetPacks.length === 0) {
     return (
-      <div className="text-center py-8 text-muted-foreground">
-        <Palette className="h-8 w-8 mx-auto mb-2 opacity-50" />
+      <div className="empty-state">
+        <Palette className="mx-auto mb-2 h-8 w-8 text-primary/70" />
         <p>Extract facets before customizing sources</p>
       </div>
     )
@@ -60,7 +60,10 @@ export function ManualFacetSelector({
           )
 
           return (
-            <div key={key} className="space-y-2 rounded-md border p-3">
+            <div
+              key={key}
+              className="space-y-2 rounded-lg border bg-[linear-gradient(180deg,#ffffff,#f8fafc)] p-3 shadow-sm transition-all duration-200 hover:border-primary/30 hover:shadow-md"
+            >
               <Label htmlFor={key}>{label}</Label>
               <Select
                 value={selectedRefId}
@@ -108,20 +111,20 @@ function FacetSourcePreview({
 
   if (!facetPack) {
     return (
-      <div className="rounded-md bg-muted/50 p-3 text-xs text-muted-foreground">
+      <div className="rounded-md border border-dashed bg-muted/50 p-3 text-xs text-muted-foreground">
         No extracted facets for this reference
       </div>
     )
   }
 
   return (
-    <div className="rounded-md bg-muted/50 p-3 text-xs">
+    <div className="rounded-md border bg-white/80 p-3 text-xs shadow-inner">
       <div className="mb-3 flex items-center gap-2">
         {referenceImageSrc && (
           <img
             src={referenceImageSrc}
             alt={reference?.filename || 'Reference thumbnail'}
-            className="h-8 w-10 rounded border object-cover"
+            className="h-8 w-10 rounded border object-cover shadow-sm"
           />
         )}
         <div className="min-w-0">
@@ -157,7 +160,7 @@ function FacetTokenPreview({
         {tokens.slice(0, 8).map((token) => (
           <div key={token.id} className="flex min-w-0 items-center gap-2">
             <div
-              className="h-6 w-6 flex-shrink-0 rounded border"
+              className="h-6 w-6 flex-shrink-0 rounded border shadow-inner"
               style={{ backgroundColor: token.value.hex }}
             />
             <div className="min-w-0">
@@ -242,7 +245,7 @@ function FacetTokenPreview({
           {token.value.scale.slice(0, 8).map((size) => (
             <div
               key={size}
-              className="flex w-5 items-end justify-center rounded-sm bg-primary/70 text-[9px] text-primary-foreground"
+              className="flex w-5 items-end justify-center rounded-sm bg-[linear-gradient(180deg,#ff5c7a,#ff4267)] text-[9px] text-primary-foreground shadow-sm"
               style={{ height: `${Math.max(16, Math.min(size, 36))}px` }}
               title={`${size}px`}
             >
@@ -262,7 +265,7 @@ function FacetTokenPreview({
 
   return (
     <div className="grid grid-cols-3 gap-2">
-      <div className="rounded-md border bg-background p-2 text-center">
+      <div className="rounded-md border bg-background p-2 text-center shadow-sm">
         <p className="text-muted-foreground">Radius</p>
         <p className="font-medium">{token.value.radius}</p>
       </div>
@@ -270,7 +273,7 @@ function FacetTokenPreview({
         <p className="text-muted-foreground">Shadow</p>
         <p className="font-medium">{token.value.shadow}</p>
       </div>
-      <div className="rounded-md border bg-background p-2 text-center">
+      <div className="rounded-md border bg-background p-2 text-center shadow-sm">
         <p className="text-muted-foreground">Border</p>
         <p className="font-medium">{token.value.border}</p>
       </div>
