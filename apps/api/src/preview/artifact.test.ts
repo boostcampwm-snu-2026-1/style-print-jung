@@ -231,9 +231,11 @@ describe('coherence judge prompt', () => {
     const baseline = evaluateIntentSpec(intentSpec).coherence
     const prompt = buildCoherenceJudgePrompt({ intentSpec, baseline })
 
-    expect(COHERENCE_JUDGE_PROMPT_VERSION.id).toBe('coherence-judge-v1')
+    expect(COHERENCE_JUDGE_PROMPT_VERSION.id).toBe('coherence-judge-v2')
     expect(COHERENCE_JUDGE_PROMPT_VERSION.rubricHash).toHaveLength(12)
-    expect(prompt).toContain('Rule-based baseline')
+    expect(prompt).toContain('Rule findings')
+    expect(prompt).not.toContain('Rule-based baseline')
+    expect(prompt).toContain('Binary checklist')
     expect(prompt).toContain('judge-prompt-test')
   })
 })
@@ -249,6 +251,25 @@ describe('/api/coherence/feedback', () => {
     })
 
     expect(response.statusCode).toBe(400)
+  })
+})
+
+describe('/api/generate/v0', () => {
+  test('rejects staged generation until the mode is implemented', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/generate/v0',
+      payload: {
+        intentSpecId: 'any-intent',
+        stepMode: 'staged',
+      },
+    })
+
+    expect(response.statusCode).toBe(400)
+    expect(response.json()).toEqual({
+      success: false,
+      error: 'Staged generation is not implemented yet',
+    })
   })
 })
 

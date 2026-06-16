@@ -154,25 +154,22 @@ export function adjustForContrast(
   targetRatio: number = 4.5
 ): string {
   const bgLum = chroma(bg).luminance()
-  let adjusted = chroma(fg)
-
-  // Determine if we need to darken or lighten
-  const shouldDarken = bgLum > 0.5
-
-  for (let i = 0; i < 20; i++) {
-    const currentRatio = calculateContrastRatio(adjusted.hex(), bg)
-    if (currentRatio >= targetRatio) {
-      return adjusted.hex()
-    }
-
-    if (shouldDarken) {
-      adjusted = adjusted.darken(0.1)
-    } else {
-      adjusted = adjusted.brighten(0.1)
-    }
+  const currentRatio = calculateContrastRatio(fg, bg)
+  if (currentRatio >= targetRatio) {
+    return chroma(fg).hex()
   }
 
-  return adjusted.hex()
+  const shouldDarken = bgLum > 0.5
+  const targetLum = shouldDarken
+    ? Math.max(0, (bgLum + 0.05) / targetRatio - 0.05)
+    : Math.min(1, targetRatio * (bgLum + 0.05) - 0.05)
+  const adjusted = chroma(fg).luminance(targetLum).hex()
+
+  if (calculateContrastRatio(adjusted, bg) >= targetRatio) {
+    return adjusted
+  }
+
+  return shouldDarken ? '#000000' : '#ffffff'
 }
 
 // For client-side color extraction with Canvas
