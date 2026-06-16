@@ -500,6 +500,7 @@ export type PreviewBuildResponse = {
 
 export type AuditRequest = {
   intentSpecId: string
+  generatedCodeId?: string
   code: string
 }
 

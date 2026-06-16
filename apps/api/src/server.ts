@@ -682,6 +682,13 @@ app.post('/api/generate/v0', async (request, reply) => {
         .send({ success: false, error: 'No intentSpecId provided' } satisfies GenerateResponse)
     }
 
+    if (stepMode === 'staged') {
+      return reply.status(400).send({
+        success: false,
+        error: 'Staged generation is not implemented yet',
+      } satisfies GenerateResponse)
+    }
+
     const intentSpec = await getIntentSpec(intentSpecId)
     if (!intentSpec) {
       return reply
@@ -897,8 +904,9 @@ app.post('/api/preview/build', async (request, reply) => {
 
 app.post('/api/audit/analyze', async (request, reply) => {
   try {
-    const { intentSpecId, code } = request.body as {
+    const { intentSpecId, generatedCodeId, code } = request.body as {
       intentSpecId?: string
+      generatedCodeId?: string
       code?: string
     }
 
@@ -922,7 +930,7 @@ app.post('/api/audit/analyze', async (request, reply) => {
     const report: AuditReport = {
       id: nanoid(),
       intentSpecId,
-      generatedCodeId: '',
+      generatedCodeId: generatedCodeId || '',
       augmented,
       diffs,
       provenanceBadges,

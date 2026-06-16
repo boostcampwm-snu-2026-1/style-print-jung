@@ -520,7 +520,11 @@ export default function App() {
     setGeneratedCode(data.generatedCode)
     setLastGeneratedSignature(generationSignature)
 
-    await auditCode(data.generatedCode.code, data.intentSpec?.id || intentSpec?.id)
+    await auditCode(
+      data.generatedCode.code,
+      data.intentSpec?.id || intentSpec?.id,
+      data.generatedCode.id
+    )
   }
 
   const pollGenerationJob = async (jobId: string): Promise<GenerateResponse> => {
@@ -548,7 +552,11 @@ export default function App() {
     throw new Error('Generate UI timed out')
   }
 
-  const auditCode = async (code: string, specId = intentSpec?.id) => {
+  const auditCode = async (
+    code: string,
+    specId = intentSpec?.id,
+    generatedCodeId?: string
+  ) => {
     if (!specId) return
 
     try {
@@ -557,6 +565,7 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           intentSpecId: specId,
+          generatedCodeId,
           code,
         }),
       })
